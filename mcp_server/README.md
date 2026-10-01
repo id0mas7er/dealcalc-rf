@@ -1,10 +1,10 @@
-# DealCalc MCP Server
+# DealCalc RF MCP Server
 
 A local [Model Context Protocol](https://modelcontextprotocol.io) server that
-exposes the DealCalc engine as tools an AI agent (e.g. Claude) can call. It runs
+exposes the DealCalc RF engine as tools an AI agent (e.g. Claude) can call. It runs
 over **stdio** for local use — no hosting, no network, no external data.
 
-Every calculator in `dealcalc.calculators` is surfaced as one tool with the same
+Every function in `dealcalc.rf` is surfaced as one tool with the same
 signature, units, and a clear docstring (the docstring is the description the
 agent sees).
 
@@ -33,33 +33,30 @@ Add an entry to `claude_desktop_config.json`
 ```json
 {
   "mcpServers": {
-    "dealcalcpro": {
+    "dealcalc-rf": {
       "command": "python",
-      "args": ["/absolute/path/to/dealcalc-core/mcp_server/server.py"]
+      "args": ["/absolute/path/to/dealcalc-rf/mcp_server/server.py"]
     }
   }
 }
 ```
 
-Restart Claude Desktop; the DealCalc tools appear in the tools menu.
+Restart Claude Desktop; the DealCalc RF tools appear in the tools menu.
 
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add dealcalcpro -- python /absolute/path/to/dealcalc-core/mcp_server/server.py
+claude mcp add dealcalc-rf -- python /absolute/path/to/dealcalc-rf/mcp_server/server.py
 ```
 
 Then run `claude` and the tools are available.
 
 ## Tools
 
-`arv`, `seventy_percent_rule`, `mao`, `wholesale`, `cap_rate`, `noi`,
-`cash_on_cash`, `dscr`, `gross_rent_multiplier`, `mortgage`, `rental_cash_flow`,
-`fix_and_flip`, `brrrr`, `rental_property_analysis`, `multifamily_analysis`,
-`irr`, `closing_costs`, `construction_cost` — 18 in total.
+`rf_comparative_approach`, `rf_income_capitalization`, `rf_dcf_valuation`,
+`rf_cost_approach`, `rf_reconcile_approaches` — 5 in total.
 
 ## Units
 
-Currency is plain USD numbers (e.g. `300000`). Rates and percentages are
-**percent numbers**, not decimals: `6.5` means 6.5%, `70` means 70%, `5` means
-5% vacancy.
+Amounts are plain numbers labelled `RUB` by default. Rates and percentages are
+**percent numbers**, not decimals: `12` means 12%.
