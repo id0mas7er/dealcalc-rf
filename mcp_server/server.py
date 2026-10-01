@@ -224,5 +224,105 @@ def rf_new_equivalent_price(price: float, total_depreciation_pct: float) -> dict
     return rf.new_equivalent_price(price, total_depreciation_pct)
 
 
+@mcp.tool()
+def rf_parameter_unit_price(
+    price_1: float, param_1: float, price_2: float, param_2: float
+) -> dict:
+    """"Price" of one unit of a parameter g = (price_1 - price_2) /
+    (param_1 - param_2) from two analogs that differ only in this parameter.
+    Use g * (subject_param - analog_param) as an "abs" adjustment step."""
+    return rf.parameter_unit_price(price_1, param_1, price_2, param_2)
+
+
+@mcp.tool()
+def rf_chain_index(price_start: float, price_end: float, periods: float) -> dict:
+    """Average chain price index h = (price_end / price_start) ** (1 / periods)."""
+    return rf.chain_index(price_start, price_end, periods)
+
+
+@mcp.tool()
+def rf_index_price(base_price: float, chain_index: float, periods: float) -> dict:
+    """Index a past price to the valuation date: base_price * chain_index ** periods."""
+    return rf.index_price(base_price, chain_index, periods)
+
+
+@mcp.tool()
+def rf_physical_depreciation(
+    age_years: float,
+    economic_life_years: float,
+    replacement_cost: Optional[float] = None,
+    annual_repair_cost: float = 0,
+    salvage_value: float = 0,
+    actual_load: float = 1,
+    normative_load: float = 1,
+) -> dict:
+    """Physical depreciation of machinery under the linear model: curable part
+    annual_repair_cost * age / replacement_cost plus incurable part
+    (actual_load / normative_load) * age / (life * cost) *
+    (cost - salvage_value - annual_repair_cost * life). Without repair costs
+    and salvage value it is (load ratio) * age / life. Capped at 100%."""
+    return rf.physical_depreciation(
+        age_years,
+        economic_life_years,
+        replacement_cost,
+        annual_repair_cost,
+        salvage_value,
+        actual_load,
+        normative_load,
+    )
+
+
+@mcp.tool()
+def rf_scrap_value(
+    mass_kg: float, scrap_price_per_kg: float, disposal_cost: float = 0
+) -> dict:
+    """Salvage value by scrap metal: mass_kg * scrap_price_per_kg - disposal_cost."""
+    return rf.scrap_value(mass_kg, scrap_price_per_kg, disposal_cost)
+
+
+@mcp.tool()
+def rf_residual_value(
+    replacement_cost: float, total_depreciation_pct: float, salvage_value: float = 0
+) -> dict:
+    """Residual value: replacement_cost * (1 - depreciation) + salvage_value;
+    a negative salvage_value is a disposal cost."""
+    return rf.residual_value(replacement_cost, total_depreciation_pct, salvage_value)
+
+
+@mcp.tool()
+def rf_cost_from_price(
+    price: float,
+    profitability_pct: float,
+    vat_pct: float = 0,
+    profit_tax_pct: Optional[float] = None,
+) -> dict:
+    """Full production cost from the manufacturer's price:
+    (1 - profitability) * price / (1 + VAT). With profit_tax_pct the
+    profitability is net: (1 - tax - profitability) * price / ((1 + VAT) *
+    (1 - tax)). The VAT rate is an input."""
+    return rf.cost_from_price(price, profitability_pct, vat_pct, profit_tax_pct)
+
+
+@mcp.tool()
+def rf_price_from_cost(
+    cost: float,
+    profitability_pct: float,
+    vat_pct: float = 0,
+    profit_tax_pct: Optional[float] = None,
+) -> dict:
+    """Manufacturer's price from full production cost; the inverse of
+    rf_cost_from_price with the same parameters."""
+    return rf.price_from_cost(cost, profitability_pct, vat_pct, profit_tax_pct)
+
+
+@mcp.tool()
+def rf_qualitative_adjustments(analogs: List[dict]) -> dict:
+    """Method of directed qualitative adjustments. Each analog has price and
+    adjustments: [{"name", "direction": "up" | "down", "weight"}] (weight 1
+    by default). Returns lower/upper analogs, the value of every pair
+    (Цн*N−в + Цв*N+н) / (N−в + N+н), the weighted value and the range value."""
+    return rf.qualitative_adjustments(analogs)
+
+
 if __name__ == "__main__":
     mcp.run()  # stdio transport

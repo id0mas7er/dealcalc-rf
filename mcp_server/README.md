@@ -14,6 +14,9 @@ agent sees).
 pip install -e ".[mcp]"   # installs the engine plus the MCP SDK
 ```
 
+The server uses the `FastMCP` API of the MCP SDK 1.x; the dependency is
+pinned to `mcp>=1.0.0,<2` because SDK 2.x renamed it.
+
 ## Run standalone
 
 ```bash
@@ -58,7 +61,10 @@ Then run `claude` and the tools are available.
 `rf_gross_rent_multiplier`, `rf_npv`, `rf_irr`, `rf_dcf_valuation`,
 `rf_cost_approach`, `rf_reconcile_approaches`,
 `rf_vehicle_comparative_approach`, `rf_braking_coefficient`,
-`rf_new_equivalent_price` — 13 in total.
+`rf_new_equivalent_price`, `rf_parameter_unit_price`, `rf_chain_index`,
+`rf_index_price`, `rf_physical_depreciation`, `rf_scrap_value`,
+`rf_residual_value`, `rf_cost_from_price`, `rf_price_from_cost`,
+`rf_qualitative_adjustments` — 22 in total.
 
 ## Units
 

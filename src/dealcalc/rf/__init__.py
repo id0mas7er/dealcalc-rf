@@ -17,7 +17,19 @@ from .real_estate import (
 )
 from .data import deduplicate_listings, load_listings, normalize_listing
 from .investment import irr, npv
-from .machinery import braking_coefficient, new_equivalent_price
+from .machinery import (
+    braking_coefficient,
+    chain_index,
+    cost_from_price,
+    index_price,
+    new_equivalent_price,
+    parameter_unit_price,
+    physical_depreciation,
+    price_from_cost,
+    qualitative_adjustments,
+    residual_value,
+    scrap_value,
+)
 from .vehicle import vehicle_comparative_approach
 
 __all__ = [
@@ -36,5 +48,14 @@ __all__ = [
     "normalize_listing",
     "braking_coefficient",
     "new_equivalent_price",
+    "parameter_unit_price",
+    "chain_index",
+    "index_price",
+    "physical_depreciation",
+    "scrap_value",
+    "residual_value",
+    "cost_from_price",
+    "price_from_cost",
+    "qualitative_adjustments",
     "vehicle_comparative_approach",
 ]

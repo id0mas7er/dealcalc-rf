@@ -41,6 +41,7 @@ _ALIASES = {
     "drive": ("drive", "привод"),
     "adjustment_pct": ("adjustment_pct", "корректировка", "корректировка %"),
     "weight": ("weight", "вес"),
+    "adjustments": ("adjustments", "корректировки"),
 }
 
 _TEXT_FIELDS = {
@@ -104,6 +105,21 @@ def parse_number(value: Any, field: str) -> Optional[float]:
     return number
 
 
+def _parse_adjustments(value: Any) -> Optional[List[Dict[str, Any]]]:
+    """Read step adjustments: a list, or a JSON list in a CSV cell."""
+
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("adjustments must be a JSON list of objects") from exc
+    if not isinstance(value, list) or not all(isinstance(step, Mapping) for step in value):
+        raise ValueError("adjustments must be a JSON list of objects")
+    return [dict(step) for step in value]
+
+
 def _text(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
@@ -144,6 +160,9 @@ def normalize_listing(
         number = parse_number(_lookup(row, field), field)
         if number is not None:
             values[field] = number
+    adjustments = _parse_adjustments(_lookup(row, "adjustments"))
+    if adjustments is not None:
+        values["adjustments"] = adjustments
 
     if collected_at is not None:
         values["collected_at"] = _text(collected_at)
@@ -221,13 +240,15 @@ def _jsonl_rows(path: Path) -> Iterable[Mapping[str, Any]]:
 
 def _csv_rows(path: Path) -> Iterable[Mapping[str, Any]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
-        sample = handle.read(8192)
+        # Sniff the delimiter from the header only: data cells may hold JSON
+        # with commas. Quoting follows standard CSV ("" inside quoted cells).
+        sample = handle.readline()
         handle.seek(0)
         try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
+            delimiter = csv.Sniffer().sniff(sample, delimiters=",;\t").delimiter
         except csv.Error:
-            dialect = csv.excel
-        reader = csv.DictReader(handle, dialect=dialect)
+            delimiter = ","
+        reader = csv.DictReader(handle, delimiter=delimiter)
         if not reader.fieldnames:
             raise ValueError("CSV must contain a header row")
         yield from reader

@@ -86,3 +86,43 @@ def test_deduplicate_listings_keeps_first_record():
 def test_normalize_listing_requires_price():
     with pytest.raises(ValueError, match="price_rub"):
         normalize_listing({"id": "1"}, source="avito")
+
+
+STEPS = [
+    {"name": "Скидка на торг", "type": "pct", "value": -5},
+    {"name": "Пробег", "type": "abs", "value": -20000},
+]
+
+
+def test_load_listings_keeps_adjustment_steps_from_json(tmp_path):
+    path = tmp_path / "cars.json"
+    path.write_text(
+        json.dumps(
+            [{"id": "1", "марка": "Lada", "модель": "Vesta", "цена": 1_000_000, "adjustments": STEPS}],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    listing = load_listings(str(path), source="drom", listing_type="vehicle")[0]
+
+    assert listing["adjustments"] == STEPS
+
+
+def test_load_listings_parses_adjustment_steps_from_csv_column(tmp_path):
+    path = tmp_path / "cars.csv"
+    cell = json.dumps(STEPS, ensure_ascii=False).replace('"', '""')
+    path.write_text(
+        f'id;марка;модель;цена;корректировки\n1;Lada;Vesta;1000000;"{cell}"\n',
+        encoding="utf-8",
+    )
+
+    listing = load_listings(str(path), source="avito", listing_type="vehicle")[0]
+
+    assert listing["adjustments"] == STEPS
+
+
+@pytest.mark.parametrize("value", ["not json", '{"name": "x"}', "[1, 2]"])
+def test_normalize_listing_rejects_invalid_adjustments(value):
+    with pytest.raises(ValueError, match="adjustments"):
+        normalize_listing({"цена": 1, "корректировки": value}, source="avito")
