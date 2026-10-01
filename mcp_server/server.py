@@ -353,5 +353,126 @@ def rf_qualitative_adjustments(analogs: List[dict]) -> dict:
     return rf.qualitative_adjustments(analogs)
 
 
+# ---------------------------------------------------------------------------
+# Business valuation (FSO No. 8)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def rf_business_income_approach(
+    cash_flows: List[float],
+    discount_rate_pct: float,
+    basis: str,
+    terminal_value: float = 0,
+    mid_year: bool = False,
+    obligations_not_in_flows: float = 0,
+    non_operating_assets: float = 0,
+    non_operating_liabilities: float = 0,
+    currency: str = "RUB",
+) -> dict:
+    """Equity value (100%) of a business from forecast cash flows (FSO No. 8).
+
+    basis "equity": FCFE at the cost of equity (obligations_not_in_flows must
+    be 0). basis "invested_capital": FCFF at WACC give invested capital, then
+    obligations not reflected in the flows are subtracted. Non-operating
+    assets/liabilities are added/subtracted once. cash_flows[0] is year 1."""
+    return rf.business_income_approach(
+        cash_flows,
+        discount_rate_pct,
+        basis,
+        terminal_value,
+        mid_year,
+        obligations_not_in_flows,
+        non_operating_assets,
+        non_operating_liabilities,
+        currency,
+    )
+
+
+@mcp.tool()
+def rf_business_multiples(
+    analogs: List[dict],
+    subject_metric: float,
+    multiple_name: str,
+    basis: str,
+    statistic: str = "median",
+    currency: str = "RUB",
+) -> dict:
+    """Value of 100% of a capital base by a market multiple (FSO No. 8).
+
+    Each analog: value (equity or invested capital matching basis), metric,
+    optional name and provenance (source, date, price_type...). The median or
+    mean multiple is applied to subject_metric; a basis/multiple mismatch
+    (EV/... with equity, P/... with invested capital) is flagged."""
+    return rf.business_multiples(analogs, subject_metric, multiple_name, basis, statistic, currency)
+
+
+@mcp.tool()
+def rf_net_assets(
+    assets: List[dict],
+    liabilities: List[dict],
+    adjustments: Optional[List[dict]] = None,
+    currency: str = "RUB",
+) -> dict:
+    """Equity by the net asset method (FSO No. 8): assets and liabilities as
+    {"name", "value", "basis": "market" | "book"}; book values are flagged.
+    adjustments: {"name", "value"} with a sign, each to be justified."""
+    return rf.net_assets(assets, liabilities, adjustments, currency)
+
+
+@mcp.tool()
+def rf_liquidation_value(
+    events: List[dict], discount_rate_pct: float, currency: str = "RUB"
+) -> dict:
+    """Business value under a justified liquidation premise (FSO No. 8 p. 11.2).
+
+    events: {"period" (years from valuation date), "sale_proceeds",
+    "debt_payments", "disposal_costs", "closure_costs"}; net proceeds are
+    discounted at the rate for the risk of receiving liquidation proceeds."""
+    return rf.liquidation_value(events, discount_rate_pct, currency)
+
+
+@mcp.tool()
+def rf_actual_share_value(
+    share_pct: float,
+    accepted_assets: float,
+    accepted_liabilities: float,
+    paid_share_pct: float = 100,
+    currency: str = "RUB",
+) -> dict:
+    """Actual value of an LLC participant's share (ДСД) on exit:
+    share × paid part × (accepted assets − accepted liabilities). A legal
+    value, not the market value of the share; no discounts or premiums."""
+    return rf.actual_share_value(
+        share_pct, accepted_assets, accepted_liabilities, paid_share_pct, currency
+    )
+
+
+@mcp.tool()
+def rf_deferred_tax_effect(
+    tax_without_effect: List[float],
+    tax_with_effect: List[float],
+    discount_rate_pct: float,
+    currency: str = "RUB",
+) -> dict:
+    """Present value of the change in tax payments from deferred tax assets /
+    liabilities (years 1..n). Use the effect once: in the forecast or as a
+    separate adjustment."""
+    return rf.deferred_tax_effect(tax_without_effect, tax_with_effect, discount_rate_pct, currency)
+
+
+@mcp.tool()
+def rf_business_interest_value(
+    value_100pct: float,
+    share_pct: float,
+    adjustments: Optional[List[dict]] = None,
+    currency: str = "RUB",
+) -> dict:
+    """Value of a specific interest: 100% value × share, then optional step
+    adjustments {"name", "type": "pct" | "abs", "value"} (control or
+    liquidity discounts), each to be justified; none applied automatically."""
+    return rf.business_interest_value(value_100pct, share_pct, adjustments, currency)
+
+
 if __name__ == "__main__":
     mcp.run()  # stdio transport

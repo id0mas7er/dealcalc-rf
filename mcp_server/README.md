@@ -65,7 +65,10 @@ Then run `claude` and the tools are available.
 `rf_index_price`, `rf_physical_depreciation`, `rf_scrap_value`,
 `rf_residual_value`, `rf_cost_from_price`, `rf_price_from_cost`,
 `rf_qualitative_adjustments`, `rf_check_assignment`,
-`rf_gordon_terminal_value` — 24 in total.
+`rf_gordon_terminal_value`, `rf_business_income_approach`,
+`rf_business_multiples`, `rf_net_assets`, `rf_liquidation_value`,
+`rf_actual_share_value`, `rf_deferred_tax_effect`,
+`rf_business_interest_value` — 31 in total.
 
 Every result carries `status` (always a draft for the appraiser),
 `method_card` (standard, formula, formula status) and `checks`.

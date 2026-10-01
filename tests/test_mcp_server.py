@@ -37,6 +37,13 @@ EXPECTED_TOOLS = {
     "rf_qualitative_adjustments",
     "rf_check_assignment",
     "rf_gordon_terminal_value",
+    "rf_business_income_approach",
+    "rf_business_multiples",
+    "rf_net_assets",
+    "rf_liquidation_value",
+    "rf_actual_share_value",
+    "rf_deferred_tax_effect",
+    "rf_business_interest_value",
 }
 
 
