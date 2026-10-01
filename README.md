@@ -98,6 +98,27 @@ python mcp_server/server.py
 Register it with Claude Desktop or Claude Code and all 18 calculators become
 callable tools.
 
+## Russian Federation profile
+
+The repository now includes a separate `dealcalc.rf` package with deterministic
+calculation aids for Russian real-estate valuation:
+
+- `comparative_approach` — adjusted comparable unit prices and an indicated
+  value range;
+- `income_capitalization` — direct capitalization of annual NOI;
+- `dcf_valuation` — discounted cash flow with an explicit terminal value;
+- `cost_approach` — replacement cost, land, and explicit depreciation inputs;
+- `reconcile_approaches` — transparent weighted reconciliation of indicated
+  values.
+
+The module does not select market evidence or prescribe correction factors.
+Those inputs must be supported by the appraiser's analysis. It is a calculation
+layer, not a claim that a generated result is a signed valuation report.
+
+The Russian profile is documented in [`docs/russia.md`](docs/russia.md). Its
+normative starting points are Federal Law No. 135-FZ, FSO I–VI under Order
+No. 200, FSO No. 7 for real estate, and FSO No. 10 for machinery and vehicles.
+
 ## Tests
 
 ```bash

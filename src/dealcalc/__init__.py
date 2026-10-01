@@ -6,7 +6,7 @@ Public API re-exports every primitive and calculator so callers can do
 
 from __future__ import annotations
 
-from . import calculators, primitives
+from . import calculators, primitives, rf
 from .calculators import (
     arv,
     brrrr,
@@ -35,11 +35,12 @@ from .primitives import (
     net_operating_income,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "calculators",
     "primitives",
+    "rf",
     # primitives
     "monthly_mortgage_payment",
     "effective_gross_income",
