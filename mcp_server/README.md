@@ -68,7 +68,10 @@ Then run `claude` and the tools are available.
 `rf_gordon_terminal_value`, `rf_business_income_approach`,
 `rf_business_multiples`, `rf_net_assets`, `rf_liquidation_value`,
 `rf_actual_share_value`, `rf_deferred_tax_effect`,
-`rf_business_interest_value` — 31 in total.
+`rf_business_interest_value`, `rf_market_rent_cost_plus`,
+`rf_cellular_site_rent`, `rf_external_obsolescence_cost_income`,
+`rf_external_obsolescence_paired_sales`,
+`rf_external_obsolescence_lost_income`, `rf_fund_unit_value` — 37 in total.
 
 Every result carries `status` (always a draft for the appraiser),
 `method_card` (standard, formula, formula status) and `checks`.

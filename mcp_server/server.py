@@ -474,5 +474,114 @@ def rf_business_interest_value(
     return rf.business_interest_value(value_100pct, share_pct, adjustments, currency)
 
 
+# ---------------------------------------------------------------------------
+# Special methods from the Expert Council recommendations
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+def rf_market_rent_cost_plus(
+    property_value: float,
+    cap_rate_pct: float,
+    owner_expenses: Optional[List[dict]] = None,
+    vacancy_pct: float = 0,
+    collection_loss_pct: float = 0,
+    rentable_area_sqm: Optional[float] = None,
+    currency: str = "RUB",
+) -> dict:
+    """Market rent by the cost-plus model (МРз–1/26): required NOI = property
+    value × cap rate, plus owner expenses ({"name", "type": "abs" RUB/year |
+    "pct" % of effective gross income, "value"}) and losses -> gross rent per
+    year, month and m². Check comparable rents first; market rent is not the
+    value of the property or of the leasehold."""
+    return rf.market_rent_cost_plus(
+        property_value,
+        cap_rate_pct,
+        owner_expenses,
+        vacancy_pct,
+        collection_loss_pct,
+        rentable_area_sqm,
+        currency,
+    )
+
+
+@mcp.tool()
+def rf_cellular_site_rent(
+    comparable_asset_value: float,
+    kit_share_pct: float,
+    cap_rate_pct: float,
+    owner_costs_annual: float = 0,
+    collection_loss_pct: float = 0,
+    currency: str = "RUB",
+) -> dict:
+    """Rent of a site for one standard cellular equipment kit (МР–3/26 (2)) by
+    reverse capitalization: comparable-utility asset value × kit share × cap
+    rate, plus owner costs and collection losses. Only when comparable rent
+    data are missing or doubtful."""
+    return rf.cellular_site_rent(
+        comparable_asset_value, kit_share_pct, cap_rate_pct, owner_costs_annual, collection_loss_pct, currency
+    )
+
+
+@mcp.tool()
+def rf_external_obsolescence_cost_income(
+    cost_value_without_external: float,
+    income_value_with_external: float,
+    currency: str = "RUB",
+) -> dict:
+    """External obsolescence (МРз–8/23-2 §4.1): cost value without the external
+    factor minus income value with it, in RUB and percent. A negative result
+    is reported, not forced to a discount."""
+    return rf.external_obsolescence_cost_income(
+        cost_value_without_external, income_value_with_external, currency
+    )
+
+
+@mcp.tool()
+def rf_external_obsolescence_paired_sales(
+    value_without_impact: float,
+    value_with_impact: float,
+    base_value: float,
+    currency: str = "RUB",
+) -> dict:
+    """External obsolescence (МРз–8/23-2 §4.2) from a pair of sales differing
+    only in the external factor: ratio = 1 − with/without, applied to base_value."""
+    return rf.external_obsolescence_paired_sales(
+        value_without_impact, value_with_impact, base_value, currency
+    )
+
+
+@mcp.tool()
+def rf_external_obsolescence_lost_income(
+    cash_flows_without: List[float],
+    cash_flows_with: List[float],
+    discount_rate_pct: float,
+    cost_value: Optional[float] = None,
+    currency: str = "RUB",
+) -> dict:
+    """External obsolescence (МРз–8/23-2 §4.3) as the present value of lost
+    cash flows (years 1..n); with cost_value also as a percent."""
+    return rf.external_obsolescence_lost_income(
+        cash_flows_without, cash_flows_with, discount_rate_pct, cost_value, currency
+    )
+
+
+@mcp.tool()
+def rf_fund_unit_value(
+    distributions: List[float],
+    final_compensation: float,
+    discount_rate_pct: float,
+    termination_costs: float = 0,
+    final_period: Optional[float] = None,
+    currency: str = "RUB",
+) -> dict:
+    """Income value of a closed-end fund unit (МРз–5/23): PV of net payouts
+    per unit (years 1..n) plus PV of the final compensation minus termination
+    costs at final_period (default n). No separate terminal value."""
+    return rf.fund_unit_value(
+        distributions, final_compensation, discount_rate_pct, termination_costs, final_period, currency
+    )
+
+
 if __name__ == "__main__":
     mcp.run()  # stdio transport

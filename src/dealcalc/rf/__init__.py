@@ -40,6 +40,14 @@ from .machinery import (
     residual_value,
     scrap_value,
 )
+from .special import (
+    cellular_site_rent,
+    external_obsolescence_cost_income,
+    external_obsolescence_lost_income,
+    external_obsolescence_paired_sales,
+    fund_unit_value,
+    market_rent_cost_plus,
+)
 from .vehicle import vehicle_comparative_approach
 
 __all__ = [
@@ -60,6 +68,12 @@ __all__ = [
     "actual_share_value",
     "deferred_tax_effect",
     "business_interest_value",
+    "market_rent_cost_plus",
+    "cellular_site_rent",
+    "external_obsolescence_cost_income",
+    "external_obsolescence_paired_sales",
+    "external_obsolescence_lost_income",
+    "fund_unit_value",
     "irr",
     "reconcile_approaches",
     "deduplicate_listings",

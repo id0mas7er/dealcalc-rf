@@ -44,6 +44,12 @@ EXPECTED_TOOLS = {
     "rf_actual_share_value",
     "rf_deferred_tax_effect",
     "rf_business_interest_value",
+    "rf_market_rent_cost_plus",
+    "rf_cellular_site_rent",
+    "rf_external_obsolescence_cost_income",
+    "rf_external_obsolescence_paired_sales",
+    "rf_external_obsolescence_lost_income",
+    "rf_fund_unit_value",
 }
 
 
