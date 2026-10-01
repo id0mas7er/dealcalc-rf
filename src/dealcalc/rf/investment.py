@@ -8,6 +8,7 @@ from typing import Any, Dict, List
 
 import numpy_financial as npf
 
+from ._adjustments import money
 from ._meta import FORMULA_TECHNICAL, method_card
 
 
@@ -55,14 +56,14 @@ def npv(cash_flows: Sequence[float], discount_rate_pct: float) -> Dict[str, Any]
         periods.append(
             {
                 "period": period,
-                "cash_flow": round(flow, 2),
+                "cash_flow": money(flow),
                 "discount_factor": round(factor, 6),
-                "present_value": round(flow * factor, 2),
+                "present_value": money(flow * factor),
             }
         )
     return {
-        "discount_rate_pct": round(rate_pct, 2),
-        "npv": round(total, 2),
+        "discount_rate_pct": money(rate_pct),
+        "npv": money(total),
         "periods": periods,
     }
 
@@ -86,8 +87,8 @@ def irr(cash_flows: Sequence[float]) -> Dict[str, Any]:
         1 for previous, current in zip(flows, flows[1:]) if previous * current < 0
     )
     return {
-        "cash_flows": [round(flow, 2) for flow in flows],
-        "irr_pct": round(result * 100, 2),
+        "cash_flows": [money(flow) for flow in flows],
+        "irr_pct": money(result * 100),
         "sign_changes": sign_changes,
         "checks": [
             f"Знак потоков меняется {sign_changes} раз(а): возможны несколько значений IRR."
@@ -131,10 +132,10 @@ def gordon_terminal_value(
     if rate <= growth:
         raise ValueError("discount_rate_pct must be greater than growth_rate_pct (r > g)")
     return {
-        "cash_flow_next": round(flow, 2),
-        "discount_rate_pct": round(rate, 2),
-        "growth_rate_pct": round(growth, 2),
-        "terminal_value": round(flow / ((rate - growth) / 100), 2),
+        "cash_flow_next": money(flow),
+        "discount_rate_pct": money(rate),
+        "growth_rate_pct": money(growth),
+        "terminal_value": money(flow / ((rate - growth) / 100)),
         "conditions": [
             "устойчивый поток после прогнозного периода",
             "длительный или неограниченный срок использования",

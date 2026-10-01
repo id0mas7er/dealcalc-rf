@@ -64,7 +64,8 @@ def test_offer_prices_are_flagged_and_normalized():
     )
 
     assert result["comparables"][0]["price_type"] == "предложение"
-    assert any("цены предложения" in check for check in result["checks"])
+    assert any("цены предложения" in note for note in result["guardrails"])
+    assert result["status"] == "черновой расчёт"
 
 
 def test_invalid_price_type_is_rejected():
@@ -170,3 +171,50 @@ def test_assignment_warnings():
 def test_assignment_rejects_unknown_object_type():
     with pytest.raises(ValueError, match="object_type"):
         check_assignment({"object_type": "art"})
+
+
+def test_every_result_has_uniform_keys():
+    result = income_capitalization(1_200_000, 12)
+
+    assert result["conditions"] == []
+    assert result["guardrails"] == []
+    assert result["checks"] == []
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda: comparative_approach(10, [{"price": 0, "area_sqm": 1}, {"price": 100, "area_sqm": 1}]),
+        lambda: vehicle_comparative_approach({}, [{"price_rub": 0}, {"price_rub": 100}]),
+    ],
+)
+def test_zero_comparable_price_is_rejected(call):
+    with pytest.raises(ValueError, match="greater than 0"):
+        call()
+
+
+def test_negative_incurable_depreciation_is_floored_and_flagged():
+    result = physical_depreciation(5, 10, replacement_cost=1_000_000, annual_repair_cost=120_000)
+
+    assert result["incurable_pct"] == 0.0
+    assert result["curable_pct"] == 60.0
+    assert any("неустранимый износ принят равным 0" in check for check in result["checks"])
+
+
+def test_collection_date_is_not_a_price_date():
+    comparables = [
+        {"price_rub": 1_000_000, "source": "avito", "price_type": "предложение", "collected_at": "2026-10-01"},
+        {"price_rub": 1_050_000, "source": "avito", "price_type": "предложение", "collected_at": "2026-10-01"},
+    ]
+
+    result = vehicle_comparative_approach({}, comparables, max_year_diff=3, max_mileage_diff=50_000)
+
+    assert any("дата цены" in check for check in result["checks"])
+
+
+@pytest.mark.parametrize("value, expected", [(2.675, 2.68), (0.125, 0.13), (-2.675, -2.68), (-0.001, 0.0)])
+def test_money_rounds_half_up(value, expected):
+    from dealcalc.rf._adjustments import money
+
+    assert money(value) == expected
+    assert str(money(-0.001)) == "0.0"

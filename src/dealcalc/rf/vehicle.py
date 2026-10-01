@@ -6,7 +6,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
-from ._adjustments import adjustment_steps, apply_adjustments, json_value, variation
+from ._adjustments import adjustment_steps, apply_adjustments, json_value, money, variation
 from ._meta import (
     FORMULA_TECHNICAL,
     method_card,
@@ -109,8 +109,8 @@ def vehicle_comparative_approach(
         if not isinstance(comparable, Mapping):
             raise ValueError(f"comparables[{index - 1}] must be an object")
         price = _number(f"comparables[{index - 1}].price_rub", comparable.get("price_rub"))
-        if price < 0:
-            raise ValueError(f"comparables[{index - 1}].price_rub must be non-negative")
+        if price <= 0:
+            raise ValueError(f"comparables[{index - 1}].price_rub must be greater than 0")
         comp_brand = _text(comparable.get("brand"))
         comp_model = _text(comparable.get("model"))
         if subject_brand and subject_brand != comp_brand:
@@ -157,11 +157,11 @@ def vehicle_comparative_approach(
         weighted_items.append((adjusted_price, weight))
         item: Dict[str, Any] = {
             "index": index,
-            "price_rub": round(price, 2),
+            "price_rub": money(price),
             "adjustments": adjusted["adjustments"],
             "net_adjustment_pct": adjusted["net_adjustment_pct"],
             "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
-            "adjusted_price_rub": round(adjusted_price, 2),
+            "adjusted_price_rub": money(adjusted_price),
             "weight": weight,
         }
         for field in ("listing_id", "brand", "model", "year", "mileage_km", "collected_at"):
@@ -177,7 +177,7 @@ def vehicle_comparative_approach(
     weighted_mean = sum(value * weight for value, weight in weighted_items) / weight_sum
     adjusted_prices = [item["adjusted_price_rub"] for item in matched]
     price_variation = variation(adjusted_prices)
-    checks = observation_checks(matched, date_keys=("date", "collected_at"))
+    checks = observation_checks(matched)
     checks += variation_checks(price_variation, len(matched))
     if max_year_diff is None or max_mileage_diff is None:
         checks.append(
@@ -188,15 +188,15 @@ def vehicle_comparative_approach(
         "approach": "comparative",
         "asset_type": "vehicle",
         "currency": currency_code,
-        "subject_price_rub": None if subject_price is None else round(subject_price, 2),
+        "subject_price_rub": None if subject_price is None else money(subject_price),
         "sample_size": len(matched),
         "rejected_count": rejected,
-        "weighted_median_price": round(_weighted_median(weighted_items), 2),
-        "weighted_mean_price": round(weighted_mean, 2),
-        "indicated_value": round(_weighted_median(weighted_items), 2),
+        "weighted_median_price": money(_weighted_median(weighted_items)),
+        "weighted_mean_price": money(weighted_mean),
+        "indicated_value": money(_weighted_median(weighted_items)),
         "indicated_value_range": {
-            "low": round(min(adjusted_prices), 2),
-            "high": round(max(adjusted_prices), 2),
+            "low": money(min(adjusted_prices)),
+            "high": money(max(adjusted_prices)),
         },
         "variation": price_variation,
         "selection": {

@@ -163,7 +163,8 @@ def test_business_interest_value_with_discount():
     assert result["pro_rata_value"] == 250.0
     assert result["adjustments"][0]["price_after"] == 212.5
     assert result["interest_value"] == 212.5
-    assert result["status"] == "нужна проверка оценщика"
+    assert result["status"] == "черновой расчёт"
+    assert "обоснуйте" in result["guardrails"][0]
 
 
 def test_business_interest_value_without_adjustments():
@@ -171,3 +172,14 @@ def test_business_interest_value_without_adjustments():
 
     assert result["interest_value"] == 250.0
     assert result["checks"] == []
+
+
+def test_net_assets_adjustments_are_a_reminder_not_a_defect():
+    result = net_assets(
+        [{"name": "Здание", "value": 1_000, "basis": "market"}],
+        [],
+        [{"name": "Корректировка", "value": -50}],
+    )
+
+    assert result["status"] == "черновой расчёт"
+    assert result["guardrails"]

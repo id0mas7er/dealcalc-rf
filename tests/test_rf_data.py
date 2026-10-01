@@ -33,6 +33,11 @@ def test_normalize_listing_maps_common_russian_fields():
         "source": "cian",
         "listing_id": "abc-1",
         "url": "https://example.invalid/abc-1",
+        "address": "",
+        "cadastral_number": "",
+        "vin": "",
+        "date": "",
+        "price_type": "предложение",
         "collected_at": "2026-10-01T00:00:00+00:00",
         "region": "",
         "city": "Казань",
@@ -126,3 +131,51 @@ def test_load_listings_parses_adjustment_steps_from_csv_column(tmp_path):
 def test_normalize_listing_rejects_invalid_adjustments(value):
     with pytest.raises(ValueError, match="adjustments"):
         normalize_listing({"цена": 1, "корректировки": value}, source="avito")
+
+
+def test_address_is_not_a_url_and_not_an_identifier():
+    a = normalize_listing({"Адрес": "Казань, ул. Баумана, 1", "Цена": 5_000_000, "Площадь": 40}, source="cian")
+    b = normalize_listing({"Адрес": "Казань, ул. Баумана, 1", "Цена": 7_000_000, "Площадь": 60}, source="cian")
+
+    assert a["address"] == "Казань, ул. Баумана, 1"
+    assert a["url"] == ""
+    assert len(deduplicate_listings([a, b])) == 2
+
+
+def test_vin_identifies_duplicates():
+    a = normalize_listing({"VIN": "xta123", "Цена": 1_000_000}, source="avito", listing_type="vehicle")
+    b = normalize_listing({"VIN": "XTA123", "Цена": 990_000}, source="avito", listing_type="vehicle")
+
+    assert len(deduplicate_listings([a, b])) == 1
+
+
+def test_import_reads_publication_date_and_defaults_to_offer():
+    row = normalize_listing({"Цена": 1_000_000, "Дата публикации": "2026-09-28"}, source="drom")
+
+    assert row["date"] == "2026-09-28"
+    assert row["price_type"] == "предложение"
+
+
+def test_import_reads_explicit_price_type():
+    row = normalize_listing({"Цена": 1_000_000, "Тип цены": "Цена сделки"}, source="rosreestr")
+
+    assert row["price_type"] == "сделка"
+
+
+def test_import_rejects_zero_price():
+    with pytest.raises(ValueError, match="greater than 0"):
+        normalize_listing({"Цена": 0}, source="avito")
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("1.200.000", 1_200_000.0),
+        ("1.200.000,50", 1_200_000.5),
+        ("1,200,000.50", 1_200_000.5),
+        ("1 200 000,50", 1_200_000.5),
+        ("54,5", 54.5),
+    ],
+)
+def test_parse_number_thousand_separators(text, expected):
+    assert parse_number(text, "price_rub") == expected

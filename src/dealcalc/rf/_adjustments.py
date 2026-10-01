@@ -6,11 +6,22 @@ from __future__ import annotations
 import datetime
 import math
 import statistics
+from decimal import ROUND_HALF_UP, Decimal
 from collections.abc import Mapping
 from typing import Any, Dict, List, Optional, Sequence
 
 LEGACY_ADJUSTMENT_NAME = "Общая корректировка"
 HOMOGENEITY_THRESHOLD_PCT = 33.0
+
+
+def money(value: float) -> float:
+    """Round to kopecks half up (2.675 -> 2.68), as reports and 1С expect.
+
+    Python's ``round`` works on the binary float and gives 2.67 here.
+    """
+
+    rounded = float(Decimal(repr(float(value))).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+    return rounded + 0.0  # normalise -0.0
 
 
 def _finite(name: str, value: Any) -> float:
@@ -81,11 +92,11 @@ def apply_adjustments(
             if value <= -100:
                 raise ValueError(f"{name_prefix}.value must be greater than -100")
             new_price = price * (1 + value / 100)
-            record["value"] = round(value, 2)
+            record["value"] = money(value)
         elif kind == "abs":
             value = _finite(f"{name_prefix}.value", step.get("value"))
             new_price = price + value
-            record["value"] = round(value, 2)
+            record["value"] = money(value)
         elif kind == "param":
             subject = _finite(f"{name_prefix}.subject", step.get("subject"))
             analog = _finite(f"{name_prefix}.analog", step.get("analog"))
@@ -122,9 +133,9 @@ def apply_adjustments(
         change = new_price - price
         gross_change += abs(change)
         record.update(
-            price_before=round(price, 2),
-            price_after=round(new_price, 2),
-            change=round(change, 2),
+            price_before=money(price),
+            price_after=money(new_price),
+            change=money(change),
         )
         applied.append(record)
         price = new_price
@@ -138,7 +149,7 @@ def apply_adjustments(
 
 
 def _share_pct(amount: float, base: float) -> Optional[float]:
-    return None if base == 0 else round(amount / base * 100, 2)
+    return None if base == 0 else money(amount / base * 100)
 
 
 def variation(prices: Sequence[float]) -> Dict[str, Any]:
@@ -147,7 +158,7 @@ def variation(prices: Sequence[float]) -> Dict[str, Any]:
     if len(prices) < 2 or statistics.mean(prices) == 0:
         coefficient = None
     else:
-        coefficient = round(statistics.stdev(prices) / statistics.mean(prices) * 100, 2)
+        coefficient = money(statistics.stdev(prices) / statistics.mean(prices) * 100)
     return {
         "coefficient_pct": coefficient,
         "threshold_pct": HOMOGENEITY_THRESHOLD_PCT,

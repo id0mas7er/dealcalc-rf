@@ -13,6 +13,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
+from ._adjustments import money
 from ._meta import FORMULA_RECOMMENDATION, method_card
 
 FORMULA_ENGINEERING = (
@@ -122,31 +123,31 @@ def market_rent_cost_plus(
             pct_total += amount
         else:
             raise ValueError(f"{prefix}.type must be 'abs' or 'pct'")
-        items.append({"name": name.strip(), "type": kind, "value": round(amount, 2)})
+        items.append({"name": name.strip(), "type": kind, "value": money(amount)})
     if pct_total >= 100:
         raise ValueError("owner expenses in percent of ДВД must be less than 100 in total")
 
     noi = value * rate / 100
     egi = (noi + abs_total) / (1 - pct_total / 100)
     for item in items:
-        item["amount"] = round(item["value"] if item["type"] == "abs" else egi * item["value"] / 100, 2)
+        item["amount"] = money(item["value"] if item["type"] == "abs" else egi * item["value"] / 100)
     pgi = egi / ((1 - vacancy / 100) * (1 - collection / 100))
     return {
         "value_kind": "рыночная арендная плата",
         "currency": _currency(currency),
-        "property_value": round(value, 2),
-        "cap_rate_pct": round(rate, 2),
-        "required_noi": round(noi, 2),
+        "property_value": money(value),
+        "cap_rate_pct": money(rate),
+        "required_noi": money(noi),
         "owner_expenses": items,
-        "total_owner_expenses": round(egi - noi, 2),
-        "effective_gross_income": round(egi, 2),
-        "vacancy_pct": round(vacancy, 2),
-        "collection_loss_pct": round(collection, 2),
-        "gross_rent_year": round(pgi, 2),
-        "gross_rent_month": round(pgi / 12, 2),
-        "rentable_area_sqm": None if area is None else round(area, 2),
-        "rent_sqm_year": None if area is None else round(pgi / area, 2),
-        "rent_sqm_month": None if area is None else round(pgi / area / 12, 2),
+        "total_owner_expenses": money(egi - noi),
+        "effective_gross_income": money(egi),
+        "vacancy_pct": money(vacancy),
+        "collection_loss_pct": money(collection),
+        "gross_rent_year": money(pgi),
+        "gross_rent_month": money(pgi / 12),
+        "rentable_area_sqm": None if area is None else money(area),
+        "rent_sqm_year": None if area is None else money(pgi / area),
+        "rent_sqm_month": None if area is None else money(pgi / area / 12),
         "guardrails": [
             "Сначала проверьте сравнительный подход по рыночным ставкам аренды.",
             "Рыночная арендная плата — самостоятельная величина, не стоимость объекта или права аренды.",
@@ -195,15 +196,15 @@ def cellular_site_rent(
     return {
         "value_kind": "арендная плата за место под стандартный комплект оборудования",
         "currency": _currency(currency),
-        "comparable_asset_value": round(value, 2),
+        "comparable_asset_value": money(value),
         "kit_share_pct": round(share, 4),
-        "allocated_value_kit": round(allocated, 2),
-        "cap_rate_pct": round(rate, 2),
-        "base_noi": round(noi, 2),
-        "owner_costs_annual": round(costs, 2),
-        "collection_loss_pct": round(collection, 2),
-        "gross_rent_year": round(gross, 2),
-        "gross_rent_month": round(gross / 12, 2),
+        "allocated_value_kit": money(allocated),
+        "cap_rate_pct": money(rate),
+        "base_noi": money(noi),
+        "owner_costs_annual": money(costs),
+        "collection_loss_pct": money(collection),
+        "gross_rent_year": money(gross),
+        "gross_rent_month": money(gross / 12),
         "guardrails": [
             "Обратная капитализация — только при отсутствии или сомнительности данных сравнения.",
             "Не подменяйте объект сопоставимой полезности стоимостью крыши или стойки.",
@@ -242,10 +243,10 @@ def external_obsolescence_cost_income(
     amount = cost - income
     return {
         "currency": _currency(currency),
-        "cost_value_without_external": round(cost, 2),
-        "income_value_with_external": round(income, 2),
-        "external_obsolescence": round(amount, 2),
-        "external_obsolescence_pct": round(amount / cost * 100, 2),
+        "cost_value_without_external": money(cost),
+        "income_value_with_external": money(income),
+        "external_obsolescence": money(amount),
+        "external_obsolescence_pct": money(amount / cost * 100),
         "checks": _obsolescence_checks(amount),
     }
 
@@ -270,14 +271,14 @@ def external_obsolescence_paired_sales(
     base = _non_negative("base_value", base_value)
     ratio = 1 - impacted / without
     checks = _obsolescence_checks(ratio)
-    checks.append("Убедитесь, что пара продаж изолирует именно внешний фактор.")
     return {
         "currency": _currency(currency),
-        "value_without_impact": round(without, 2),
-        "value_with_impact": round(impacted, 2),
-        "obsolescence_ratio_pct": round(ratio * 100, 2),
-        "base_value": round(base, 2),
-        "external_obsolescence": round(base * ratio, 2),
+        "value_without_impact": money(without),
+        "value_with_impact": money(impacted),
+        "obsolescence_ratio_pct": money(ratio * 100),
+        "base_value": money(base),
+        "external_obsolescence": money(base * ratio),
+        "guardrails": ["Убедитесь, что пара продаж изолирует именно внешний фактор."],
         "checks": checks,
     }
 
@@ -312,14 +313,14 @@ def external_obsolescence_lost_income(
         loss = a - b
         factor = 1 / (1 + rate) ** period
         total += loss * factor
-        rows.append({"period": period, "loss": round(loss, 2), "present_value": round(loss * factor, 2)})
+        rows.append({"period": period, "loss": money(loss), "present_value": money(loss * factor)})
     return {
         "currency": _currency(currency),
-        "discount_rate_pct": round(rate * 100, 2),
+        "discount_rate_pct": money(rate * 100),
         "periods": rows,
-        "present_value_loss": round(total, 2),
-        "cost_value": None if base is None else round(base, 2),
-        "external_obsolescence_pct": None if base is None else round(total / base * 100, 2),
+        "present_value_loss": money(total),
+        "cost_value": None if base is None else money(base),
+        "external_obsolescence_pct": None if base is None else money(total / base * 100),
         "checks": _obsolescence_checks(total),
     }
 
@@ -359,7 +360,7 @@ def fund_unit_value(
     for period, payout in enumerate(payouts, start=1):
         factor = 1 / (1 + rate) ** period
         pv_payouts += payout * factor
-        rows.append({"period": period, "distribution": round(payout, 2), "present_value": round(payout * factor, 2)})
+        rows.append({"period": period, "distribution": money(payout), "present_value": money(payout * factor)})
     pv_final = (final - costs) / (1 + rate) ** period_final
 
     checks = []
@@ -367,14 +368,14 @@ def fund_unit_value(
         checks.append("Расходы прекращения больше финальной компенсации: проверьте условия договора.")
     return {
         "currency": _currency(currency),
-        "discount_rate_pct": round(rate * 100, 2),
+        "discount_rate_pct": money(rate * 100),
         "distributions": rows,
-        "present_value_distributions": round(pv_payouts, 2),
-        "final_compensation": round(final, 2),
-        "termination_costs": round(costs, 2),
+        "present_value_distributions": money(pv_payouts),
+        "final_compensation": money(final),
+        "termination_costs": money(costs),
         "final_period": period_final,
-        "present_value_final": round(pv_final, 2),
-        "unit_value": round(pv_payouts + pv_final, 2),
+        "present_value_final": money(pv_final),
+        "unit_value": money(pv_payouts + pv_final),
         "guardrails": [
             "Сравнительный подход — только при сделках с паями того же фонда.",
             "Не дублируйте скидку за неликвидность, если она отражена в потоках или ставке.",

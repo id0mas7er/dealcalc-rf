@@ -40,6 +40,9 @@ def method_card(
         def wrapper(*args: Any, **kwargs: Any) -> Dict[str, Any]:
             result = dict(func(*args, **kwargs))
             checks = list(result.pop("checks", []))
+            guardrails = list(result.pop("guardrails", []))
+            conditions = list(result.pop("conditions", []))
+            guardrails += offer_guardrails(result)
             status = result.pop("status", None) or (STATUS_REVIEW if checks else STATUS_DRAFT)
             return {
                 "status": status,
@@ -50,6 +53,8 @@ def method_card(
                     "formula_status": formula_status,
                 },
                 **result,
+                "conditions": conditions,
+                "guardrails": guardrails,
                 "checks": checks,
             }
 
@@ -91,19 +96,30 @@ def observation_checks(items: Sequence[Mapping[str, Any]], date_keys: Sequence[s
     no_source = [item["index"] for item in items if not item.get("source")]
     no_date = [item["index"] for item in items if not any(item.get(key) for key in date_keys)]
     no_type = [item["index"] for item in items if not item.get("price_type")]
-    offers = [item["index"] for item in items if item.get("price_type") == "предложение"]
     if no_source:
         checks.append(f"Не указан источник у аналогов {no_source}.")
     if no_date:
         checks.append(f"Не указана дата цены у аналогов {no_date}.")
     if no_type:
         checks.append(f"Не указан тип цены (сделка/предложение) у аналогов {no_type}.")
-    if offers:
-        checks.append(
-            f"Аналоги {offers} — цены предложения: проверьте скидку к цене сделки, "
-            "срок экспозиции и изменение цены."
-        )
     return checks
+
+
+def offer_guardrails(result: Mapping[str, Any]) -> List[str]:
+    """Reminder for offer prices; a reminder, not a data defect."""
+
+    items = result.get("comparables") or result.get("analogs") or []
+    offers = [
+        item.get("index")
+        for item in items
+        if isinstance(item, Mapping) and item.get("price_type") == "предложение"
+    ]
+    if not offers:
+        return []
+    return [
+        f"Аналоги {offers} — цены предложения: обоснуйте скидку к цене сделки, "
+        "срок экспозиции и изменение цены."
+    ]
 
 
 def variation_checks(variation: Mapping[str, Any], sample_size: int) -> List[str]:

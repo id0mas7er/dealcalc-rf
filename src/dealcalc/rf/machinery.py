@@ -11,6 +11,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
+from ._adjustments import money
 from ._meta import (
     FORMULA_METHODICAL,
     FORMULA_TECHNICAL,
@@ -87,9 +88,9 @@ def new_equivalent_price(price: float, total_depreciation_pct: float) -> Dict[st
     if not 0 <= depreciation < 100:
         raise ValueError("total_depreciation_pct must be in [0, 100)")
     return {
-        "price": round(analog_price, 2),
-        "total_depreciation_pct": round(depreciation, 2),
-        "new_equivalent_price": round(analog_price / (1 - depreciation / 100), 2),
+        "price": money(analog_price),
+        "total_depreciation_pct": money(depreciation),
+        "new_equivalent_price": money(analog_price / (1 - depreciation / 100)),
     }
 
 
@@ -173,11 +174,11 @@ def index_price(base_price: float, chain_index: float, periods: float) -> Dict[s
     count = _non_negative("periods", periods)
     total = index**count
     return {
-        "base_price": round(base, 2),
+        "base_price": money(base),
         "chain_index": index,
         "periods": count,
         "total_index": round(total, 6),
-        "indexed_price": round(base * total, 2),
+        "indexed_price": money(base * total),
     }
 
 
@@ -218,6 +219,7 @@ def physical_depreciation(
         "normative_load", normative_load
     )
 
+    floored = False
     if repair == 0 and salvage == 0:
         cost = None if replacement_cost is None else _positive("replacement_cost", replacement_cost)
         curable = 0.0
@@ -229,27 +231,39 @@ def physical_depreciation(
             )
         cost = _positive("replacement_cost", replacement_cost)
         curable = repair * age / cost
-        incurable = load_ratio * age / (life * cost) * (cost - salvage - repair * life)
+        depreciable_base = cost - salvage - repair * life
+        floored = depreciable_base < 0
+        incurable = load_ratio * age / (life * cost) * max(depreciable_base, 0)
 
     total = (curable + incurable) * 100
     capped = total > 100
     return {
         "age_years": age,
         "economic_life_years": life,
-        "replacement_cost": None if cost is None else round(cost, 2),
-        "annual_repair_cost": round(repair, 2),
-        "salvage_value": round(salvage, 2),
+        "replacement_cost": None if cost is None else money(cost),
+        "annual_repair_cost": money(repair),
+        "salvage_value": money(salvage),
         "load_ratio": round(load_ratio, 4),
-        "curable_pct": round(curable * 100, 2),
-        "incurable_pct": round(incurable * 100, 2),
-        "total_pct": 100.0 if capped else round(total, 2),
+        "curable_pct": money(curable * 100),
+        "incurable_pct": money(incurable * 100),
+        "total_pct": 100.0 if capped else money(total),
         "capped": capped,
-        "checks": [
-            f"Расчётный износ {round(total, 2)}% превышает 100% и ограничен 100%: "
-            "проверьте срок эксплуатации и срок экономической жизни."
-        ]
-        if capped
-        else [],
+        "checks": (
+            [
+                f"Расчётный износ {money(total)}% превышает 100% и ограничен 100%: "
+                "проверьте срок эксплуатации и срок экономической жизни."
+            ]
+            if capped
+            else []
+        )
+        + (
+            [
+                "ПВС − стоимость утилизации − затраты на ремонты за срок жизни < 0: "
+                "неустранимый износ принят равным 0; проверьте исходные данные."
+            ]
+            if floored
+            else []
+        ),
     }
 
 
@@ -273,8 +287,8 @@ def scrap_value(
     return {
         "mass_kg": mass,
         "scrap_price_per_kg": price,
-        "disposal_cost": round(cost, 2),
-        "scrap_value": round(mass * price - cost, 2),
+        "disposal_cost": money(cost),
+        "scrap_value": money(mass * price - cost),
     }
 
 
@@ -300,11 +314,11 @@ def residual_value(
     salvage = _number("salvage_value", salvage_value)
     depreciated = cost * (1 - depreciation / 100)
     return {
-        "replacement_cost": round(cost, 2),
-        "total_depreciation_pct": round(depreciation, 2),
-        "depreciated_value": round(depreciated, 2),
-        "salvage_value": round(salvage, 2),
-        "residual_value": round(depreciated + salvage, 2),
+        "replacement_cost": money(cost),
+        "total_depreciation_pct": money(depreciation),
+        "depreciated_value": money(depreciated),
+        "salvage_value": money(salvage),
+        "residual_value": money(depreciated + salvage),
     }
 
 
@@ -336,20 +350,20 @@ def _cost_share(structure: Dict[str, Optional[float]]) -> float:
 def _price_breakdown(price: float, cost: float, vat: float) -> Dict[str, float]:
     price_without_vat = price / (1 + vat)
     return {
-        "price": round(price, 2),
-        "vat": round(price - price_without_vat, 2),
-        "price_without_vat": round(price_without_vat, 2),
-        "profit": round(price_without_vat - cost, 2),
-        "full_cost": round(cost, 2),
+        "price": money(price),
+        "vat": money(price - price_without_vat),
+        "price_without_vat": money(price_without_vat),
+        "profit": money(price_without_vat - cost),
+        "full_cost": money(cost),
     }
 
 
 def _structure_fields(structure: Dict[str, Optional[float]]) -> Dict[str, Optional[float]]:
     tax = structure["tax"]
     return {
-        "profitability_pct": round(structure["profitability"] * 100, 2),
-        "vat_pct": round(structure["vat"] * 100, 2),
-        "profit_tax_pct": None if tax is None else round(tax * 100, 2),
+        "profitability_pct": money(structure["profitability"] * 100),
+        "vat_pct": money(structure["vat"] * 100),
+        "profit_tax_pct": None if tax is None else money(tax * 100),
     }
 
 
@@ -461,7 +475,7 @@ def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, A
         effective = up - down
         item: Dict[str, Any] = {
             "index": index + 1,
-            "price": round(price, 2),
+            "price": money(price),
             "adjustments": shown,
             "up": up,
             "down": down,
@@ -494,7 +508,7 @@ def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, A
         weight = raw / weight_sum
         weighted += pair["value"] * weight
         pair["weight"] = round(weight, 4)
-        pair["value"] = round(pair["value"], 2)
+        pair["value"] = money(pair["value"])
 
     best_upper = min(upper, key=lambda entry: (-entry[2], entry[1]))
     best_lower = min(lower, key=lambda entry: (entry[2], -entry[1]))
@@ -502,7 +516,7 @@ def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, A
         "method": "qualitative_adjustments",
         "analogs": [entry[0] for entry in described],
         "pairs": pairs,
-        "weighted_value": round(weighted, 2),
-        "range_value": round(pair_value(best_lower, best_upper), 2),
+        "weighted_value": money(weighted),
+        "range_value": money(pair_value(best_lower, best_upper)),
         "range_pair": {"lower": best_lower[0]["index"], "upper": best_upper[0]["index"]},
     }

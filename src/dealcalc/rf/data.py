@@ -22,7 +22,19 @@ LISTING_TYPES = {"property", "vehicle"}
 _ALIASES = {
     "source": ("source", "источник", "площадка", "сайт"),
     "listing_id": ("listing_id", "id", "идентификатор", "номер объявления"),
-    "url": ("url", "link", "ссылка", "адрес"),
+    "url": ("url", "link", "ссылка", "ссылка на объявление"),
+    "address": ("address", "адрес", "местоположение"),
+    "cadastral_number": ("cadastral_number", "кадастровый номер", "кадастровый"),
+    "vin": ("vin", "вин", "vin-номер"),
+    "date": (
+        "date",
+        "дата публикации",
+        "дата объявления",
+        "дата размещения",
+        "размещено",
+        "дата",
+    ),
+    "price_type": ("price_type", "тип цены"),
     "collected_at": ("collected_at", "дата сбора", "дата_сбора"),
     "region": ("region", "регион", "область", "край"),
     "city": ("city", "город", "населенный пункт", "населённый пункт"),
@@ -47,6 +59,10 @@ _ALIASES = {
 _TEXT_FIELDS = {
     "listing_id",
     "url",
+    "address",
+    "cadastral_number",
+    "vin",
+    "date",
     "collected_at",
     "region",
     "city",
@@ -92,10 +108,18 @@ def parse_number(value: Any, field: str) -> Optional[float]:
         if not text:
             return None
         text = re.sub(r"[^0-9,.-]", "", text)
-        if text.count(",") == 1 and text.count(".") == 0:
+        if "," in text and "." in text:
+            # The last separator is the decimal one: 1.200.000,50 or 1,200,000.50.
+            if text.rfind(",") > text.rfind("."):
+                text = text.replace(".", "").replace(",", ".")
+            else:
+                text = text.replace(",", "")
+        elif text.count(",") == 1:
             text = text.replace(",", ".")
-        else:
+        elif text.count(",") > 1:
             text = text.replace(",", "")
+        elif text.count(".") > 1:
+            text = text.replace(".", "")
         try:
             number = float(text)
         except ValueError as exc:
@@ -120,6 +144,27 @@ def _parse_adjustments(value: Any) -> Optional[List[Dict[str, Any]]]:
     return [dict(step) for step in value]
 
 
+_PRICE_TYPES = {
+    "сделка": "сделка",
+    "transaction": "сделка",
+    "цена сделки": "сделка",
+    "предложение": "предложение",
+    "offer": "предложение",
+    "цена предложения": "предложение",
+}
+
+
+def _price_type(value: Any) -> str:
+    """Marketplace exports are offers unless the file says otherwise."""
+
+    text = _text(value).lower()
+    if not text:
+        return "предложение"
+    if text not in _PRICE_TYPES:
+        raise ValueError("price_type must be 'сделка' or 'предложение'")
+    return _PRICE_TYPES[text]
+
+
 def _text(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
@@ -134,7 +179,12 @@ def normalize_listing(
     listing_type: str = "property",
     collected_at: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Normalize one marketplace row into the shared listing schema."""
+    """Normalize one marketplace row into the shared listing schema.
+
+    ``date`` is the publication date of the offer (the price date);
+    ``collected_at`` is when the file was collected and is not a price date.
+    ``price_type`` defaults to "предложение": marketplace listings are offers.
+    """
 
     if not isinstance(row, Mapping):
         raise ValueError("row must be an object")
@@ -160,6 +210,7 @@ def normalize_listing(
         number = parse_number(_lookup(row, field), field)
         if number is not None:
             values[field] = number
+    values["price_type"] = _price_type(_lookup(row, "price_type"))
     adjustments = _parse_adjustments(_lookup(row, "adjustments"))
     if adjustments is not None:
         values["adjustments"] = adjustments
@@ -169,8 +220,8 @@ def normalize_listing(
     elif not values["collected_at"]:
         values["collected_at"] = _default_collected_at()
 
-    if values["price_rub"] is None or values["price_rub"] < 0:
-        raise ValueError("price_rub must be a non-negative number")
+    if values["price_rub"] is None or values["price_rub"] <= 0:
+        raise ValueError("price_rub must be a number greater than 0")
     if values["area_sqm"] is not None and values["area_sqm"] <= 0:
         raise ValueError("area_sqm must be greater than 0 when provided")
     if values["mileage_km"] is not None and values["mileage_km"] < 0:
@@ -188,8 +239,13 @@ def normalize_listing(
             values["model"],
             values["mileage_km"],
         )
+        # The address is not an identifier: different flats share it.
         if values["url"]:
             stable_fields = (values["source"], values["url"])
+        elif values["vin"]:
+            stable_fields = (values["source"], "vin", values["vin"].upper())
+        elif values["cadastral_number"]:
+            stable_fields = (values["source"], "cadastral", values["cadastral_number"])
         seed = "|".join("" if item is None else str(item) for item in stable_fields)
         values["listing_id"] = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
 

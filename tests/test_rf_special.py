@@ -87,6 +87,8 @@ def test_external_obsolescence_paired_sales():
 
     assert result["obsolescence_ratio_pct"] == 20.0
     assert result["external_obsolescence"] == 200_000.0
+    assert result["status"] == "черновой расчёт"
+    assert "изолирует" in result["guardrails"][0]
 
 
 def test_external_obsolescence_lost_income():

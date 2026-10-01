@@ -13,7 +13,7 @@ import statistics
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
-from ._adjustments import apply_adjustments, variation
+from ._adjustments import apply_adjustments, money, variation
 from ._meta import (
     FORMULA_RECOMMENDATION,
     FORMULA_TECHNICAL,
@@ -136,9 +136,9 @@ def business_income_approach(
         periods.append(
             {
                 "period": period,
-                "cash_flow": round(flow, 2),
+                "cash_flow": money(flow),
                 "discount_factor": round(factor, 6),
-                "present_value": round(flow * factor, 2),
+                "present_value": money(flow * factor),
             }
         )
     pv_terminal = terminal / (1 + rate) ** len(flows)
@@ -155,16 +155,16 @@ def business_income_approach(
         "flow_type": "FCFE" if chosen_basis == "equity" else "FCFF",
         "discounting": "mid_year" if mid_year else "end_of_year",
         "currency": _currency(currency),
-        "discount_rate_pct": round(rate * 100, 2),
+        "discount_rate_pct": money(rate * 100),
         "periods": periods,
-        "present_value_cash_flows": round(pv_flows, 2),
-        "terminal_value": round(terminal, 2),
-        "terminal_present_value": round(pv_terminal, 2),
-        "invested_capital_value": round(operating_value, 2) if chosen_basis == "invested_capital" else None,
-        "obligations_not_in_flows": round(obligations, 2),
-        "non_operating_assets": round(nop_assets, 2),
-        "non_operating_liabilities": round(nop_liabilities, 2),
-        "equity_value_100pct": round(equity, 2),
+        "present_value_cash_flows": money(pv_flows),
+        "terminal_value": money(terminal),
+        "terminal_present_value": money(pv_terminal),
+        "invested_capital_value": money(operating_value) if chosen_basis == "invested_capital" else None,
+        "obligations_not_in_flows": money(obligations),
+        "non_operating_assets": money(nop_assets),
+        "non_operating_liabilities": money(nop_liabilities),
+        "equity_value_100pct": money(equity),
         "checks": checks,
     }
 
@@ -219,8 +219,8 @@ def business_multiples(
         multiples.append(value / metric)
         item: Dict[str, Any] = {
             "index": index + 1,
-            "value": round(value, 2),
-            "metric": round(metric, 2),
+            "value": money(value),
+            "metric": money(metric),
             "multiple": round(value / metric, 4),
             **observation_fields(analog, prefix),
         }
@@ -250,8 +250,8 @@ def business_multiples(
         "variation": multiple_variation,
         "statistic": statistic,
         "selected_multiple": round(chosen, 4),
-        "subject_metric": round(metric_subject, 2),
-        "value_100pct": round(chosen * metric_subject, 2),
+        "subject_metric": money(metric_subject),
+        "value_100pct": money(chosen * metric_subject),
         "analogs": items,
         "checks": checks,
     }
@@ -292,7 +292,7 @@ def net_assets(
             basis = item["raw"].get("basis")
             if basis not in (None, "market", "book"):
                 raise ValueError(f"{prefix}[{index}].basis must be 'market' or 'book'")
-            result.append({"name": item["name"], "value": round(item["value"], 2), "basis": basis})
+            result.append({"name": item["name"], "value": money(item["value"]), "basis": basis})
         return result
 
     shown_assets = shown(asset_items, "assets")
@@ -308,18 +308,17 @@ def net_assets(
             f"Позиции не по рыночной стоимости (балансовые или без указания): {not_market}. "
             "Балансовая стоимость не становится рыночной автоматически."
         )
-    if adjustment_items:
-        checks.append("Корректировки чистых активов: каждую обоснуйте.")
     return {
         "approach": "cost",
         "currency": _currency(currency),
         "assets": shown_assets,
         "liabilities": shown_liabilities,
-        "adjustments": [{"name": item["name"], "value": round(item["value"], 2)} for item in adjustment_items],
-        "total_assets": round(total_assets, 2),
-        "total_liabilities": round(total_liabilities, 2),
-        "total_adjustments": round(total_adjustments, 2),
-        "equity_value_100pct": round(total_assets - total_liabilities + total_adjustments, 2),
+        "adjustments": [{"name": item["name"], "value": money(item["value"])} for item in adjustment_items],
+        "total_assets": money(total_assets),
+        "total_liabilities": money(total_liabilities),
+        "total_adjustments": money(total_adjustments),
+        "equity_value_100pct": money(total_assets - total_liabilities + total_adjustments),
+        "guardrails": ["Каждую корректировку чистых активов обоснуйте."] if adjustment_items else [],
         "checks": checks,
     }
 
@@ -365,10 +364,10 @@ def liquidation_value(
         rows.append(
             {
                 "period": period,
-                **{key: round(value, 2) for key, value in parts.items()},
-                "net_proceeds": round(net, 2),
+                **{key: money(value) for key, value in parts.items()},
+                "net_proceeds": money(net),
                 "discount_factor": round(factor, 6),
-                "present_value": round(net * factor, 2),
+                "present_value": money(net * factor),
             }
         )
 
@@ -383,9 +382,9 @@ def liquidation_value(
     return {
         "approach": "liquidation",
         "currency": _currency(currency),
-        "discount_rate_pct": round(rate * 100, 2),
+        "discount_rate_pct": money(rate * 100),
         "events": rows,
-        "liquidation_value": round(total, 2),
+        "liquidation_value": money(total),
         "checks": checks,
     }
 
@@ -432,12 +431,12 @@ def actual_share_value(
         "value_kind": "действительная стоимость доли (ДСД)",
         "currency": _currency(currency),
         "share_pct": round(share, 4),
-        "paid_share_pct": round(paid, 2),
+        "paid_share_pct": money(paid),
         "legal_share_fraction": round(legal_fraction, 6),
-        "accepted_assets": round(assets, 2),
-        "accepted_liabilities": round(liabilities, 2),
-        "accepted_net_assets": round(net, 2),
-        "actual_share_value": round(legal_fraction * net, 2),
+        "accepted_assets": money(assets),
+        "accepted_liabilities": money(liabilities),
+        "accepted_net_assets": money(net),
+        "actual_share_value": money(legal_fraction * net),
         "guardrails": [
             "ДСД не равна рыночной стоимости доли.",
             "Скидки и премии за контроль и ликвидность к ДСД не применяются.",
@@ -483,17 +482,17 @@ def deferred_tax_effect(
         rows.append(
             {
                 "period": period,
-                "tax_without_effect": round(base, 2),
-                "tax_with_effect": round(after, 2),
-                "tax_change": round(delta, 2),
-                "present_value": round(delta * factor, 2),
+                "tax_without_effect": money(base),
+                "tax_with_effect": money(after),
+                "tax_change": money(delta),
+                "present_value": money(delta * factor),
             }
         )
     return {
         "currency": _currency(currency),
-        "discount_rate_pct": round(rate * 100, 2),
+        "discount_rate_pct": money(rate * 100),
         "periods": rows,
-        "present_value_effect": round(total, 2),
+        "present_value_effect": money(total),
         "guardrails": [
             "Учитывайте эффект один раз: в прогнозе потоков или отдельной корректировкой.",
             "Без обоснованной будущей налогооблагаемой прибыли ОНА может не иметь экономической ценности.",
@@ -534,15 +533,17 @@ def business_interest_value(
         "adjusted_price": pro_rata,
         "adjustments": [],
     }
-    checks = []
-    if steps:
-        checks.append("Скидки/премии к доле: обоснуйте их правами пакета, ликвидностью и рыночными данными.")
     return {
         "currency": _currency(currency),
-        "value_100pct": round(total, 2),
+        "value_100pct": money(total),
         "share_pct": round(share, 4),
-        "pro_rata_value": round(pro_rata, 2),
+        "pro_rata_value": money(pro_rata),
         "adjustments": adjusted["adjustments"],
-        "interest_value": round(adjusted["adjusted_price"], 2),
-        "checks": checks,
+        "interest_value": money(adjusted["adjusted_price"]),
+        "guardrails": [
+            "Скидки/премии к доле: обоснуйте их правами пакета, ликвидностью и рыночными данными."
+        ]
+        if steps
+        else [],
+        "checks": [],
     }

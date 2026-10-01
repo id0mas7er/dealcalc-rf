@@ -18,7 +18,7 @@ import statistics
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Optional
 
-from ._adjustments import adjustment_steps, apply_adjustments, variation
+from ._adjustments import adjustment_steps, apply_adjustments, money, variation
 from ._meta import (
     FORMULA_NORM,
     FORMULA_TECHNICAL,
@@ -74,7 +74,7 @@ def _currency(currency: str) -> str:
 
 
 def _round(value: float) -> float:
-    return round(value, 2)
+    return money(value)
 
 
 @method_card(
@@ -125,7 +125,9 @@ def comparative_approach(
         if not isinstance(comparable, Mapping):
             raise ValueError(f"comparables[{index - 1}] must be an object")
 
-        price = _non_negative(f"comparables[{index - 1}].price", comparable.get("price"))
+        price = _finite_number(f"comparables[{index - 1}].price", comparable.get("price"))
+        if price <= 0:
+            raise ValueError(f"comparables[{index - 1}].price must be greater than 0")
         area = _finite_number(
             f"comparables[{index - 1}].area_sqm", comparable.get("area_sqm")
         )
