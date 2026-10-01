@@ -12,6 +12,7 @@ from .real_estate import (
     dcf_valuation,
     gross_rent_multiplier,
     income_capitalization,
+    indexed_replacement_cost,
     net_operating_income,
     reconcile_approaches,
 )
@@ -23,10 +24,18 @@ from .business import (
     business_interest_value,
     business_multiples,
     deferred_tax_effect,
-    liquidation_value,
+    business_liquidation_value,
     net_assets,
 )
-from .investment import gordon_terminal_value, irr, npv
+from .investment import (
+    asset_liquidation_value,
+    capital_recovery_rate,
+    discount_rate_build_up,
+    gordon_terminal_value,
+    irr,
+    npv,
+    reversion_value,
+)
 from .machinery import (
     braking_coefficient,
     chain_index,
@@ -53,6 +62,7 @@ from .vehicle import vehicle_comparative_approach
 __all__ = [
     "comparative_approach",
     "cost_approach",
+    "indexed_replacement_cost",
     "dcf_valuation",
     "income_capitalization",
     "net_operating_income",
@@ -60,11 +70,15 @@ __all__ = [
     "gross_rent_multiplier",
     "npv",
     "gordon_terminal_value",
+    "discount_rate_build_up",
+    "capital_recovery_rate",
+    "reversion_value",
     "check_assignment",
     "business_income_approach",
     "business_multiples",
     "net_assets",
-    "liquidation_value",
+    "business_liquidation_value",
+    "asset_liquidation_value",
     "actual_share_value",
     "deferred_tax_effect",
     "business_interest_value",

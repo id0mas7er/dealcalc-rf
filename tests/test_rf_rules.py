@@ -16,16 +16,21 @@ from dealcalc.rf import (
 FULL = {"source": "ЦИАН", "date": "2026-09-20", "price_type": "сделка"}
 
 
+CONTEXT = {"valuation_date": "2026-10-01", "value_type": "рыночная", "vat": "excluded"}
+
+
 def test_result_envelope_with_normative_formula():
-    result = income_capitalization(1_200_000, 12)
+    result = income_capitalization(1_200_000, 12, context=CONTEXT)
 
     assert result["status"] == "черновой расчёт"
     assert result["method_card"] == {
         "id": "DIRECT_CAPITALIZATION",
-        "standard": "ФСО V, п. 14; ФСО №7",
+        "standard": "ФСО V, п. 14; ФСО №7, п. 23 (в)",
         "formula": "V = I_1 / R",
         "formula_status": "норма ФСО",
+        "source_url": "https://srosovet.ru/activities/npa/fso-v/",
     }
+    assert result["context"]["vat_label"] == "без НДС"
     assert result["checks"] == []
 
 
@@ -174,7 +179,7 @@ def test_assignment_rejects_unknown_object_type():
 
 
 def test_every_result_has_uniform_keys():
-    result = income_capitalization(1_200_000, 12)
+    result = income_capitalization(1_200_000, 12, context=CONTEXT)
 
     assert result["conditions"] == []
     assert result["guardrails"] == []
@@ -218,3 +223,66 @@ def test_money_rounds_half_up(value, expected):
 
     assert money(value) == expected
     assert str(money(-0.001)) == "0.0"
+
+
+def test_missing_context_is_a_reminder_not_a_defect():
+    result = income_capitalization(1_200_000, 12)
+
+    assert result["status"] == "черновой расчёт"
+    assert result["context"]["valuation_date"] is None
+    assert "дата оценки" in result["guardrails"][0]
+
+
+@pytest.mark.parametrize(
+    "context, message",
+    [
+        ({"valuation_date": "01.10.2026"}, "valuation_date"),
+        ({"value_type": "справедливая"}, "value_type"),
+        ({"vat": "yes"}, "vat"),
+        ({"vat_rate_pct": -1}, "vat_rate_pct"),
+        ({"unknown": 1}, "unknown fields"),
+    ],
+)
+def test_invalid_context_is_rejected(context, message):
+    with pytest.raises(ValueError, match=message):
+        income_capitalization(1_200_000, 12, context=context)
+
+
+def test_period_conventions_are_explicit():
+    from dealcalc.rf import dcf_valuation, npv
+
+    assert npv([-100, 110], 10)["first_cash_flow_period"] == 0
+    assert dcf_valuation([110], 10)["first_cash_flow_period"] == 1
+
+
+def test_terminal_value_mid_year_timing():
+    from dealcalc.rf import business_income_approach, dcf_valuation
+
+    end = dcf_valuation([100, 100], 10, terminal_value=1_000, mid_year=True)
+    mid = dcf_valuation([100, 100], 10, terminal_value=1_000, mid_year=True, terminal_timing="mid")
+
+    assert end["terminal_discount_period"] == 2
+    assert mid["terminal_discount_period"] == 1.5
+    assert mid["terminal_present_value"] == pytest.approx(1_000 / 1.1 ** 1.5, abs=0.01)
+    assert business_income_approach([100], 10, "equity", 1_000, terminal_timing="mid")[
+        "terminal_discount_period"
+    ] == 0.5
+    with pytest.raises(ValueError, match="terminal_timing"):
+        dcf_valuation([100], 10, terminal_timing="start")
+
+
+def test_asset_liquidation_value():
+    from dealcalc.rf import asset_liquidation_value
+
+    result = asset_liquidation_value(1_000_000, 20, typical_exposure_months=6, liquidation_exposure_months=2)
+
+    assert result["liquidation_value"] == pytest.approx(941_036.03, abs=0.01)
+    assert result["liquidation_discount_pct"] == pytest.approx(5.9, abs=0.01)
+    assert result["value_kind"] == "ликвидационная стоимость"
+
+
+def test_asset_liquidation_value_rejects_longer_forced_exposure():
+    from dealcalc.rf import asset_liquidation_value
+
+    with pytest.raises(ValueError, match="must not exceed"):
+        asset_liquidation_value(1_000_000, 20, 6, 8)

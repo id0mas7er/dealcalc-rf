@@ -129,7 +129,7 @@ def test_reconcile_returns_weights_as_given():
         {"a": 100, "b": 200, "c": 300}, {"a": third, "b": third, "c": third}, 250
     )
 
-    assert sum(result["weights"].values()) == pytest.approx(1)
+    assert sum(result["weights"].values()) == pytest.approx(1, abs=1e-3)
     assert result["reconciled_value"] == 200.0
 
 
@@ -163,9 +163,26 @@ def test_reconcile_can_select_one_approach():
 
     assert result["reconciled_value"] == 100.0
     assert result["divergence_pct"] == 0.0
-    assert "весом 0" in result["checks"][0]
+    assert result["status"] == "черновой расчёт"
+    assert "весом 0" in result["guardrails"][0]
 
 
 def test_income_capitalization_rejects_negative_noi():
     with pytest.raises(ValueError, match="noi_annual"):
         income_capitalization(-1_000_000, 10)
+
+
+@pytest.mark.parametrize("base, expected", [("min", 30.0), ("mean", 26.09), ("max", 23.08)])
+def test_reconcile_divergence_base(base, expected):
+    result = reconcile_approaches({"a": 100, "b": 130}, {"a": 0.5, "b": 0.5}, 50, divergence_base=base)
+
+    assert result["divergence_pct"] == expected
+    assert result["divergence_base"] == base
+    assert base in result["divergence_formula"]
+
+
+def test_reconcile_weights_are_rounded():
+    third = 1 / 3
+    result = reconcile_approaches({"a": 1, "b": 1, "c": 1}, {"a": third, "b": third, "c": third}, 10)
+
+    assert result["weights"] == {"a": 0.3333, "b": 0.3333, "c": 0.3333}

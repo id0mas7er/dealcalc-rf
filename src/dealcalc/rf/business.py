@@ -86,9 +86,10 @@ def _named_amounts(items: Any, name: str) -> List[Dict[str, Any]]:
 
 @method_card(
     "BUSINESS_EQUITY_DCF",
-    "ФСО №8, п. 9; ФСО V",
+    "ФСО №8, п. 9; ФСО V, п. 15",
     "Equity = PV(FCFE) + НА − НО; Equity = PV(FCFF при WACC) − обязательства вне потока + НА − НО",
     FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso8/",
 )
 def business_income_approach(
     cash_flows: Sequence[float],
@@ -100,6 +101,7 @@ def business_income_approach(
     non_operating_assets: float = 0,
     non_operating_liabilities: float = 0,
     currency: str = "RUB",
+    terminal_timing: str = "end",
 ) -> Dict[str, Any]:
     """Equity value of a business from forecast cash flows.
 
@@ -107,10 +109,14 @@ def business_income_approach(
     cost of equity; ``obligations_not_in_flows`` must be 0 because the debt
     is already in the flow. ``basis="invested_capital"``: FCFF at WACC give
     the value of invested capital, then obligations not reflected in the
-    flows are subtracted. Non-operating assets and liabilities are added and
-    subtracted once. ``cash_flows[0]`` is year 1, discounted at the end of
-    the year or at its middle (``mid_year``); the terminal value is
-    discounted at the end of the last year. The result is 100% of equity.
+    flows are subtracted — only those not reflected in the flows, not the
+    whole book debt. Non-operating assets and liabilities are added and
+    subtracted once. ``cash_flows[0]`` is YEAR 1 (period 1), discounted at
+    the end of the year or at its middle (``mid_year``). The result is 100%
+    of equity.
+    ``terminal_timing`` sets when the terminal value is discounted: ``end``
+    (end of year n, default) or ``mid`` (n − 0.5, consistent with a Gordon
+    value built from a mid-year flow of year n + 1).
     """
 
     chosen_basis = _basis(basis)
@@ -141,7 +147,10 @@ def business_income_approach(
                 "present_value": money(flow * factor),
             }
         )
-    pv_terminal = terminal / (1 + rate) ** len(flows)
+    if terminal_timing not in ("end", "mid"):
+        raise ValueError("terminal_timing must be 'end' or 'mid'")
+    terminal_period = len(flows) - 0.5 if terminal_timing == "mid" else len(flows)
+    pv_terminal = terminal / (1 + rate) ** terminal_period
     operating_value = pv_flows + pv_terminal
     equity = operating_value - obligations + nop_assets - nop_liabilities
 
@@ -154,6 +163,8 @@ def business_income_approach(
         "basis_label": _BASES[chosen_basis],
         "flow_type": "FCFE" if chosen_basis == "equity" else "FCFF",
         "discounting": "mid_year" if mid_year else "end_of_year",
+        "first_cash_flow_period": 1,
+        "terminal_discount_period": terminal_period,
         "currency": _currency(currency),
         "discount_rate_pct": money(rate * 100),
         "periods": periods,
@@ -171,9 +182,10 @@ def business_income_approach(
 
 @method_card(
     "BUSINESS_MULTIPLE",
-    "ФСО №8, п. 10.2; ФСО V",
+    "ФСО №8, пп. 10, 10.2",
     "M_i = стоимость_i / показатель_i; V(100% базы) = M × показатель объекта",
     FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso8/",
 )
 def business_multiples(
     analogs: Sequence[Mapping[str, Any]],
@@ -185,6 +197,10 @@ def business_multiples(
 ) -> Dict[str, Any]:
     """Value of 100% of a capital base by a market multiple.
 
+    ``basis`` is stated explicitly and is the numerator of the multiple:
+    ``equity`` (P/E, P/BV...) or ``invested_capital`` (EV/EBITDA, EV/S...);
+    the result is 100% of that base. To get equity from an EV multiple,
+    subtract the obligations not reflected in the metric separately.
     Each analog has ``value`` (its equity or invested capital, matching
     ``basis``) and ``metric`` (the financial or operating indicator of the
     multiple), plus optional ``name`` and provenance fields. The selected
@@ -231,11 +247,6 @@ def business_multiples(
     chosen = statistics.median(multiples) if statistic == "median" else statistics.mean(multiples)
     multiple_variation = variation(multiples)
     checks = observation_checks(items) + variation_checks(multiple_variation, len(items))
-    label = multiple_name.strip().upper().replace(" ", "")
-    if chosen_basis == "equity" and label.startswith("EV"):
-        checks.append(f"Мультипликатор {multiple_name} относится к инвестированному капиталу, а база — собственный капитал.")
-    if chosen_basis == "invested_capital" and label.startswith("P/"):
-        checks.append(f"Мультипликатор {multiple_name} относится к собственному капиталу, а база — инвестированный капитал.")
     return {
         "approach": "comparative",
         "multiple_name": multiple_name.strip(),
@@ -259,9 +270,10 @@ def business_multiples(
 
 @method_card(
     "BUSINESS_NET_ASSETS",
-    "ФСО №8, п. 11; ФСО V",
+    "ФСО №8, п. 11",
     "Equity = Σ активы − Σ обязательства + обоснованные корректировки",
     FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso8/",
 )
 def net_assets(
     assets: Sequence[Mapping[str, Any]],
@@ -328,8 +340,9 @@ def net_assets(
     "ФСО №8, п. 11.2; МРз–1/23",
     "V0 = Σ (поступления − долги − расходы реализации − расходы закрытия)_t / (1 + r)^t",
     FORMULA_RECOMMENDATION,
+    source_url="https://srosovet.ru/press/news/070223/",
 )
-def liquidation_value(
+def business_liquidation_value(
     events: Sequence[Mapping[str, Any]],
     discount_rate_pct: float,
     currency: str = "RUB",
@@ -384,16 +397,17 @@ def liquidation_value(
         "currency": _currency(currency),
         "discount_rate_pct": money(rate * 100),
         "events": rows,
-        "liquidation_value": money(total),
+        "business_liquidation_value": money(total),
         "checks": checks,
     }
 
 
 @method_card(
     "DSD_NET_ASSETS",
-    "МР–3/25 (2) от 17.04.2026; ФСО №8",
+    "Федеральный закон № 14-ФЗ «Об ООО»: п. 2 ст. 14, п. 6.1 ст. 23, ст. 26; МР–3/25 (2) от 17.04.2026; ФСО №8",
     "ДСД = доля участника × оплаченная часть × (принятые активы − принятые обязательства)",
     FORMULA_RECOMMENDATION,
+    source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/dsd-2026/",
 )
 def actual_share_value(
     share_pct: float,
@@ -448,9 +462,10 @@ def actual_share_value(
 
 @method_card(
     "DEFERRED_TAX_PV",
-    "МР–2/22; ФСО №8",
+    "МР–2/22; ФСО №8, п. 9",
     "ΔНалог_t = налог без эффекта ОНА/ОНО − налог с эффектом; PV = Σ ΔНалог_t / (1 + r)^t",
     FORMULA_RECOMMENDATION,
+    source_url="https://srosovet.ru/press/news/201222/",
 )
 def deferred_tax_effect(
     tax_without_effect: Sequence[float],
@@ -506,6 +521,7 @@ def deferred_tax_effect(
     "ФСО №8",
     "V доли = V(100%) × доля, затем обоснованные скидки/премии по шагам",
     FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso8/",
 )
 def business_interest_value(
     value_100pct: float,

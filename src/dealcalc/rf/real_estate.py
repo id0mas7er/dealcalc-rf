@@ -18,7 +18,15 @@ import statistics
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Optional
 
-from ._adjustments import adjustment_steps, apply_adjustments, money, variation
+from ._adjustments import (
+    WEIGHTING_FORMULAS,
+    adjustment_steps,
+    analog_weight,
+    apply_adjustments,
+    money,
+    variation,
+    weight_shares,
+)
 from ._meta import (
     FORMULA_NORM,
     FORMULA_TECHNICAL,
@@ -73,20 +81,28 @@ def _currency(currency: str) -> str:
     return currency.strip().upper()
 
 
+def _terminal_period(periods: int, timing: str) -> float:
+    if timing not in ("end", "mid"):
+        raise ValueError("terminal_timing must be 'end' or 'mid'")
+    return periods - 0.5 if timing == "mid" else periods
+
+
 def _round(value: float) -> float:
     return money(value)
 
 
 @method_card(
     "COMPARABLE_UNIT_PRICE",
-    "ФСО V; ФСО №7",
+    "ФСО V; ФСО №7, п. 22",
     "u_i = P_adj,i / q_i; V = q_subject × u_reconciled; поправки — последовательно",
     FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
 )
 def comparative_approach(
     subject_area_sqm: float,
     comparables: Sequence[Mapping[str, Any]],
     currency: str = "RUB",
+    weighting: str = "manual",
 ) -> Dict[str, Any]:
     """Calculate an indicated value from adjusted comparable unit prices.
 
@@ -101,6 +117,10 @@ def comparative_approach(
     ``1 + value / 100``, ``abs`` adds ``value`` RUB per m². Put the bargaining
     discount first. Every intermediate price is kept in the result. The legacy
     ``adjustment_pct`` field is treated as one step.
+
+    ``weighting``: ``manual`` (``weight`` of each comparable, default 1),
+    ``inverse_gross`` (w ∝ 1 / (1 + gross adjustment / 100)) or
+    ``inverse_count`` (w ∝ 1 / (1 + number of adjustments)).
 
     The indicated value is the rounded weighted unit price times the subject
     area. ``variation`` reports the coefficient of variation of adjusted unit
@@ -134,18 +154,13 @@ def comparative_approach(
         if area <= 0:
             raise ValueError(f"comparables[{index - 1}].area_sqm must be greater than 0")
 
-        weight = _finite_number(
-            f"comparables[{index - 1}].weight", comparable.get("weight", 1)
-        )
-        if weight <= 0:
-            raise ValueError(f"comparables[{index - 1}].weight must be greater than 0")
-
         unit_price = price / area
         prefix = f"comparables[{index - 1}]"
         adjusted = apply_adjustments(
             unit_price, adjustment_steps(comparable, prefix), prefix
         )
         adjusted_unit_price = adjusted["adjusted_price"]
+        weight = analog_weight(comparable, adjusted, weighting, prefix)
         total_weight += weight
         weighted_unit_sum += adjusted_unit_price * weight
 
@@ -158,11 +173,13 @@ def comparative_approach(
             "net_adjustment_pct": adjusted["net_adjustment_pct"],
             "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
             "adjusted_unit_price": _round(adjusted_unit_price),
-            "weight": _round(weight),
+            "weight": round(weight, 6),
             **observation_fields(comparable, prefix),
         }
         normalized.append(item)
 
+    for item, share in zip(normalized, weight_shares([item["weight"] for item in normalized])):
+        item["weight_share"] = share
     weighted_unit_price = _round(weighted_unit_sum / total_weight)
     adjusted_prices = [item["adjusted_unit_price"] for item in normalized]
     sample_variation = variation(adjusted_prices)
@@ -171,6 +188,8 @@ def comparative_approach(
         "currency": currency_code,
         "subject_area_sqm": _round(subject_area),
         "sample_size": len(normalized),
+        "weighting": weighting,
+        "weighting_formula": WEIGHTING_FORMULAS[weighting],
         "weighted_unit_price": weighted_unit_price,
         "indicated_value": _round(weighted_unit_price * subject_area),
         "adjusted_unit_price_min": _round(min(adjusted_prices)),
@@ -188,9 +207,10 @@ def comparative_approach(
 
 @method_card(
     "DIRECT_CAPITALIZATION",
-    "ФСО V, п. 14; ФСО №7",
+    "ФСО V, п. 14; ФСО №7, п. 23 (в)",
     "V = I_1 / R",
     FORMULA_NORM,
+    source_url="https://srosovet.ru/activities/npa/fso-v/",
 )
 def income_capitalization(
     noi_annual: float,
@@ -220,9 +240,10 @@ def income_capitalization(
 
 @method_card(
     "NOI_BUILD_UP",
-    "ФСО V; ФСО №7",
+    "ФСО V; ФСО №7, п. 23",
     "ДВД = ПВД × (1 − недозагрузка) × (1 − недосбор) + прочие доходы; ЧОД = ДВД − расходы",
     FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
 )
 def net_operating_income(
     potential_gross_income: Optional[float] = None,
@@ -324,9 +345,10 @@ def net_operating_income(
 
 @method_card(
     "CAP_RATE_EXTRACTION",
-    "ФСО №7 (общая ставка по соотношению доходов и цен аналогов)",
+    "ФСО №7, п. 23 (в, д): общая ставка по соотношению доходов и цен аналогов",
     "R_i = ЧОД_i / P_i",
     FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
 )
 def cap_rate_extraction(
     comparables: Sequence[Mapping[str, Any]],
@@ -381,9 +403,10 @@ def cap_rate_extraction(
 
 @method_card(
     "GROSS_RENT_MULTIPLIER",
-    "ФСО V; ФСО №7",
+    "ФСО V; ФСО №7, п. 23",
     "ВРМ_i = P_i / ВД_i; V = ВРМ × ВД_объекта",
     FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
 )
 def gross_rent_multiplier(
     comparables: Sequence[Mapping[str, Any]],
@@ -457,9 +480,10 @@ def gross_rent_multiplier(
 
 @method_card(
     "DCF",
-    "ФСО V; ФСО №7",
+    "ФСО V, п. 15; ФСО №7, п. 23 (б)",
     "V0 = Σ CF_t / (1 + r)^t + TV_n / (1 + r)^n",
     "математическая реализация требования ФСО V приводить потоки к дате оценки; прогноз и ставка стандартом не установлены",
+    source_url="https://srosovet.ru/activities/npa/fso-v/",
 )
 def dcf_valuation(
     cash_flows: Sequence[float],
@@ -467,13 +491,18 @@ def dcf_valuation(
     terminal_value: float = 0,
     currency: str = "RUB",
     mid_year: bool = False,
+    terminal_timing: str = "end",
 ) -> Dict[str, Any]:
     """Calculate the present value of annual cash flows and a terminal value.
 
-    ``cash_flows[0]`` is the year-1 cash flow, discounted at the end of the
-    year, or at its middle (period ``t - 0.5``) when ``mid_year`` is true. The
-    terminal value is discounted at the end of the last cash-flow period. The function does not prescribe a
-    growth model, exit yield, or discount-rate source.
+    ``cash_flows[0]`` is the YEAR-1 cash flow (period 1, not period 0 as in
+    :func:`npv`), discounted at the end of the year, or at its middle
+    (period ``t - 0.5``) when ``mid_year`` is true.
+    ``terminal_timing`` sets when the terminal value is discounted: ``end``
+    (end of year n, default) or ``mid`` (n − 0.5, consistent with a Gordon
+    value built from a mid-year flow of year n + 1).
+    The function does not prescribe a growth model, exit yield, or
+    discount-rate source.
     """
 
     if not cash_flows:
@@ -484,17 +513,20 @@ def dcf_valuation(
         raise ValueError("discount_rate_pct must be greater than -100")
     terminal = _finite_number("terminal_value", terminal_value)
     rate = discount_rate / 100
+    terminal_period = _terminal_period(len(flows), terminal_timing)
 
     shift = 0.5 if mid_year else 0
     present_values = [
         flow / ((1 + rate) ** (period - shift)) for period, flow in enumerate(flows, 1)
     ]
-    terminal_present_value = terminal / ((1 + rate) ** len(flows))
+    terminal_present_value = terminal / ((1 + rate) ** terminal_period)
     indicated_value = sum(present_values) + terminal_present_value
     return {
         "approach": "income",
         "method": "discounted_cash_flow",
         "discounting": "mid_year" if mid_year else "end_of_year",
+        "first_cash_flow_period": 1,
+        "terminal_discount_period": terminal_period,
         "currency": _currency(currency),
         "cash_flows": [_round(flow) for flow in flows],
         "discount_rate_pct": _round(discount_rate),
@@ -507,9 +539,10 @@ def dcf_valuation(
 
 @method_card(
     "PROPERTY_COST_APPROACH",
-    "ФСО №7, п. 24; ФСО V",
+    "ФСО №7, п. 24 (г); ФСО V, пп. 24, 31, 33",
     "V = V_земли + (C × (1 + ПП)) × (1 − Иф)(1 − Ифу)(1 − Иэ)",
     "структурная формула ФСО №7; модель износа (перемножение) — расчётное представление",
+    source_url="https://srosovet.ru/activities/npa/fso7/",
 )
 def cost_approach(
     replacement_cost: float,
@@ -519,14 +552,20 @@ def cost_approach(
     external_depreciation_pct: float = 0,
     entrepreneurial_profit_pct: float = 0,
     currency: str = "RUB",
+    profit_base: str = "improvements",
 ) -> Dict[str, Any]:
     """Calculate a residual improvement value plus land value.
 
     Formula::
 
-        cost_with_profit = replacement_cost * (1 + entrepreneurial_profit_pct / 100)
+        entrepreneurial_profit = base * entrepreneurial_profit_pct / 100
+        cost_with_profit = replacement_cost + entrepreneurial_profit
         total_depreciation = 1 - (1 - physical) * (1 - functional) * (1 - external)
         value = land_value + cost_with_profit * (1 - total_depreciation)
+
+    ``profit_base`` is ``improvements`` (replacement cost, default) or
+    ``land_and_improvements`` (replacement cost + land value), as different
+    methods do.
 
     The depreciation components are combined multiplicatively. The selected
     depreciation method, entrepreneurial profit and their evidence belong in
@@ -548,8 +587,11 @@ def cost_approach(
         "external_depreciation_pct", external_depreciation_pct, minimum=0, maximum=100
     )
     profit_pct = _non_negative("entrepreneurial_profit_pct", entrepreneurial_profit_pct)
+    if profit_base not in ("improvements", "land_and_improvements"):
+        raise ValueError("profit_base must be 'improvements' or 'land_and_improvements'")
+    base = replacement + (land if profit_base == "land_and_improvements" else 0)
 
-    entrepreneurial_profit = replacement * profit_pct / 100
+    entrepreneurial_profit = base * profit_pct / 100
     cost_with_profit = replacement + entrepreneurial_profit
     remaining_share = (1 - physical / 100) * (1 - functional / 100) * (1 - external / 100)
     total_depreciation = (1 - remaining_share) * 100
@@ -560,6 +602,7 @@ def cost_approach(
         "currency": _currency(currency),
         "replacement_cost": _round(replacement),
         "entrepreneurial_profit_pct": _round(profit_pct),
+        "profit_base": profit_base,
         "entrepreneurial_profit": _round(entrepreneurial_profit),
         "replacement_cost_with_profit": _round(cost_with_profit),
         "land_value": _round(land),
@@ -575,10 +618,93 @@ def cost_approach(
 
 
 @method_card(
+    "INDEXED_REPLACEMENT_COST",
+    "ФСО №7, п. 24 (г); ФСО V, п. 24",
+    "C = C_база × Π индексов × региональный коэффициент × (1 + НДС)",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
+)
+def indexed_replacement_cost(
+    base_cost: float,
+    indices: Sequence[Mapping[str, Any]],
+    regional_coefficient: float = 1,
+    vat_pct: float = 0,
+    base_label: str = "",
+    currency: str = "RUB",
+) -> Dict[str, Any]:
+    """Replacement cost at the valuation date from a base-year cost.
+
+    ``base_cost`` is the cost in base prices (e.g. УПВС 1969, prices of
+    1984 or a КО-ИНВЕСТ reference); ``indices`` is the ordered chain
+    ``{"name", "value", "source"}`` (e.g. 1969→1984, 1984→date by the
+    Ministry of Construction or КО-ИНВЕСТ). Every index, the regional
+    coefficient and VAT are shown as separate steps. VAT rate is an input.
+    """
+
+    cost = _non_negative("base_cost", base_cost)
+    if isinstance(indices, (str, bytes)) or not isinstance(indices, Sequence) or not indices:
+        raise ValueError("indices must be a non-empty list")
+    regional = _finite_number("regional_coefficient", regional_coefficient)
+    if regional <= 0:
+        raise ValueError("regional_coefficient must be greater than 0")
+    vat = _non_negative("vat_pct", vat_pct)
+
+    steps = []
+    value = cost
+    no_source = []
+    for number, index in enumerate(indices):
+        prefix = f"indices[{number}]"
+        if not isinstance(index, Mapping):
+            raise ValueError(f"{prefix} must be an object")
+        name = index.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"{prefix}.name must be a non-empty string")
+        factor = _finite_number(f"{prefix}.value", index.get("value"))
+        if factor <= 0:
+            raise ValueError(f"{prefix}.value must be greater than 0")
+        before = value
+        value *= factor
+        step: Dict[str, Any] = {
+            "name": name.strip(),
+            "factor": factor,
+            "cost_before": _round(before),
+            "cost_after": _round(value),
+        }
+        if index.get("source"):
+            step["source"] = str(index["source"])
+        else:
+            no_source.append(name.strip())
+        steps.append(step)
+    for name, factor in (("Региональный коэффициент", regional), ("НДС", 1 + vat / 100)):
+        if factor != 1:
+            before = value
+            value *= factor
+            steps.append({"name": name, "factor": round(factor, 6), "cost_before": _round(before), "cost_after": _round(value)})
+
+    checks = [f"Не указаны источники индексов: {no_source}."] if no_source else []
+    return {
+        "approach": "cost",
+        "currency": _currency(currency),
+        "base_cost": _round(cost),
+        "base_label": base_label or None,
+        "steps": steps,
+        "total_index": round(value / cost, 6) if cost else None,
+        "vat_pct": _round(vat),
+        "replacement_cost": _round(value),
+        "guardrails": [
+            "Накопление ошибок индексации за длинный период: проверьте результат по рыночным данным, "
+            "если они есть.",
+        ],
+        "checks": checks,
+    }
+
+
+@method_card(
     "RECONCILIATION",
-    "ФСО V",
+    "ФСО V, п. 3",
     "V = Σ w_i × V_i, Σ w_i = 1",
     "расчётное представление; веса, выбор подхода и анализ расхождений — суждение оценщика",
+    source_url="https://srosovet.ru/activities/npa/fso-v/",
 )
 def reconcile_approaches(
     approach_values: Mapping[str, float],
@@ -586,6 +712,7 @@ def reconcile_approaches(
     max_divergence_pct: float,
     justification: Optional[str] = None,
     currency: str = "RUB",
+    divergence_base: str = "min",
 ) -> Dict[str, Any]:
     """Reconcile indicated values with appraiser-supplied weights.
 
@@ -593,7 +720,9 @@ def reconcile_approaches(
     Weights must sum to 1 (tolerance 0.0001); a weight of 0 excludes an
     approach, so one approach can be selected. ``max_divergence_pct`` is the
     appraiser's threshold of material divergence, measured as
-    ``(max − min) / min × 100`` over the approaches with positive weight.
+    ``(max − min) / base × 100`` over the approaches with positive weight;
+    ``divergence_base`` is ``min`` (default), ``mean`` or ``max`` — the base
+    of the appraiser's threshold, named in the result.
     Above it the result is not reconciled automatically unless a
     ``justification`` is given; the deviation of every approach from the
     reconciled value is shown.
@@ -624,7 +753,11 @@ def reconcile_approaches(
     used = {name: value for name, value in values.items() if given[name] > 0}
     reconciled = sum(values[name] * given[name] for name in values)
     low, high = min(used.values()), max(used.values())
-    divergence = None if low == 0 else (high - low) / low * 100
+    bases = {"min": low, "mean": sum(used.values()) / len(used), "max": high}
+    if divergence_base not in bases:
+        raise ValueError("divergence_base must be 'min', 'mean' or 'max'")
+    base = bases[divergence_base]
+    divergence = None if base == 0 else (high - low) / base * 100
 
     checks = []
     status = None
@@ -644,22 +777,25 @@ def reconcile_approaches(
                 "приведено обоснование оценщика."
             )
     excluded = [name for name in values if given[name] == 0]
-    if excluded:
-        checks.append(f"Подходы с весом 0 не участвуют в результате: {excluded}.")
 
     result: Dict[str, Any] = {
         "currency": _currency(currency),
         "approach_values": {name: _round(value) for name, value in values.items()},
-        "weights": given,
+        "weights": {name: round(weight, 4) for name, weight in given.items()},
         "reconciled_value": _round(reconciled),
         "deviation_from_reconciled_pct": {
             name: None if reconciled == 0 else _round((value - reconciled) / reconciled * 100)
             for name, value in used.items()
         },
         "divergence_pct": None if divergence is None else _round(divergence),
+        "divergence_base": divergence_base,
+        "divergence_formula": f"(max − min) / {divergence_base} × 100",
         "max_divergence_pct": _round(threshold),
         "justification": note,
         "value_range": {"low": _round(low), "high": _round(high)},
+        "guardrails": [f"Подходы с весом 0 не участвуют в результате: {excluded}; причину отказа опишите."]
+        if excluded
+        else [],
         "checks": checks,
     }
     if status is not None:

@@ -1,37 +1,30 @@
-# DealCalc RF MCP Server
+# MCP-сервер DealCalc RF
 
-A local [Model Context Protocol](https://modelcontextprotocol.io) server that
-exposes the DealCalc RF engine as tools an AI agent (e.g. Claude) can call. It runs
-over **stdio** for local use — no hosting, no network, no external data.
+Локальный сервер [Model Context Protocol](https://modelcontextprotocol.io):
+расчёты `dealcalc.rf` доступны ИИ-агенту (например, Claude) как инструменты.
+Работает по stdio на вашем компьютере — без хостинга, сети и внешних данных.
+Описания инструментов на русском; у каждого расчётного инструмента есть
+необязательный параметр `context` (дата оценки, вид стоимости, НДС).
 
-Every function in `dealcalc.rf` is surfaced as one tool with the same
-signature, units, and a clear docstring (the docstring is the description the
-agent sees).
-
-## Install
+## Установка
 
 ```bash
-pip install -e ".[mcp]"   # installs the engine plus the MCP SDK
+pip install -e ".[mcp]"
 ```
 
-The server uses the `FastMCP` API of the MCP SDK 1.x; the dependency is
-pinned to `mcp>=1.0.0,<2` because SDK 2.x renamed it.
+Сервер использует API `FastMCP` из MCP SDK 1.x; зависимость ограничена
+`mcp>=1.0.0,<2`, потому что в SDK 2.x этот API переименован.
 
-## Run standalone
+## Запуск
 
 ```bash
 python mcp_server/server.py
 ```
 
-The server speaks the MCP stdio transport, so it waits for a client to connect.
+## Подключение к Claude
 
-## Register with Claude
-
-### Claude Desktop
-
-Add an entry to `claude_desktop_config.json`
-(`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS,
-`%APPDATA%\Claude\claude_desktop_config.json` on Windows):
+Claude Desktop — в `claude_desktop_config.json`
+(`%APPDATA%\Claude\claude_desktop_config.json` в Windows):
 
 ```json
 {
@@ -44,39 +37,41 @@ Add an entry to `claude_desktop_config.json`
 }
 ```
 
-Restart Claude Desktop; the DealCalc RF tools appear in the tools menu.
-
-### Claude Code (CLI)
+Claude Code — файл `.mcp.json` в корне проекта с тем же содержимым или команда:
 
 ```bash
 claude mcp add dealcalc-rf -- python /absolute/path/to/dealcalc-rf/mcp_server/server.py
 ```
 
-Then run `claude` and the tools are available.
+## Инструменты — 43
 
-## Tools
+- Задание и данные: `rf_check_assignment`, `rf_load_listings`.
+- Недвижимость, сравнительный подход: `rf_comparative_approach`.
+- Доходный подход: `rf_net_operating_income`, `rf_cap_rate_extraction`,
+  `rf_income_capitalization`, `rf_gross_rent_multiplier`, `rf_dcf_valuation`,
+  `rf_gordon_terminal_value`, `rf_reversion_value`, `rf_discount_rate_build_up`,
+  `rf_capital_recovery_rate`, `rf_npv`, `rf_irr`.
+- Затратный подход и согласование: `rf_cost_approach`,
+  `rf_indexed_replacement_cost`, `rf_reconcile_approaches`,
+  `rf_asset_liquidation_value`.
+- Автомобили, машины и оборудование: `rf_vehicle_comparative_approach`,
+  `rf_braking_coefficient`, `rf_parameter_unit_price`, `rf_new_equivalent_price`,
+  `rf_chain_index`, `rf_index_price`, `rf_physical_depreciation`,
+  `rf_scrap_value`, `rf_residual_value`, `rf_cost_from_price`,
+  `rf_price_from_cost`, `rf_qualitative_adjustments`.
+- Бизнес (ФСО №8): `rf_business_income_approach`, `rf_business_multiples`,
+  `rf_net_assets`, `rf_business_liquidation_value`, `rf_actual_share_value`,
+  `rf_deferred_tax_effect`, `rf_business_interest_value`.
+- Рекомендации «СРОО Экспертный совет»: `rf_market_rent_cost_plus`,
+  `rf_cellular_site_rent`, `rf_external_obsolescence_cost_income`,
+  `rf_external_obsolescence_paired_sales`, `rf_external_obsolescence_lost_income`,
+  `rf_fund_unit_value`.
 
-`rf_comparative_approach`, `rf_income_capitalization`,
-`rf_net_operating_income`, `rf_cap_rate_extraction`,
-`rf_gross_rent_multiplier`, `rf_npv`, `rf_irr`, `rf_dcf_valuation`,
-`rf_cost_approach`, `rf_reconcile_approaches`,
-`rf_vehicle_comparative_approach`, `rf_braking_coefficient`,
-`rf_new_equivalent_price`, `rf_parameter_unit_price`, `rf_chain_index`,
-`rf_index_price`, `rf_physical_depreciation`, `rf_scrap_value`,
-`rf_residual_value`, `rf_cost_from_price`, `rf_price_from_cost`,
-`rf_qualitative_adjustments`, `rf_check_assignment`,
-`rf_gordon_terminal_value`, `rf_business_income_approach`,
-`rf_business_multiples`, `rf_net_assets`, `rf_liquidation_value`,
-`rf_actual_share_value`, `rf_deferred_tax_effect`,
-`rf_business_interest_value`, `rf_market_rent_cost_plus`,
-`rf_cellular_site_rent`, `rf_external_obsolescence_cost_income`,
-`rf_external_obsolescence_paired_sales`,
-`rf_external_obsolescence_lost_income`, `rf_fund_unit_value` — 37 in total.
+Каждый результат — черновик для проверки оценщиком: `status`, `context`,
+`method_card` (стандарт, формула, статус формулы, ссылка на документ),
+`conditions`, `guardrails`, `checks`.
 
-Every result carries `status` (always a draft for the appraiser),
-`method_card` (standard, formula, formula status) and `checks`.
+## Единицы
 
-## Units
-
-Amounts are plain numbers labelled `RUB` by default. Rates and percentages are
-**percent numbers**, not decimals: `12` means 12%.
+Суммы — числа с пометкой `RUB` по умолчанию. Ставки и проценты — в процентах:
+`12` означает 12 %.

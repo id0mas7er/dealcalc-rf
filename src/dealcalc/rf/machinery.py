@@ -40,10 +40,11 @@ def _positive(name: str, value: Any) -> float:
 
 
 @method_card(
-    'BRAKING_COEFFICIENT',
-    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формула (24)',
-    'b = ln(Ц2/Ц1) / ln(X2/X1)',
+    "BRAKING_COEFFICIENT",
+    "ФСО №10, п. 13; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формула (24)",
+    "b = ln(Ц2/Ц1) / ln(X2/X1)",
     FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
 )
 def braking_coefficient(
     price_1: float, param_1: float, price_2: float, param_2: float
@@ -71,10 +72,11 @@ def braking_coefficient(
 
 
 @method_card(
-    'NEW_EQUIVALENT_PRICE',
-    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формула (22)',
-    'Цус = Цан / (1 − Кизн)',
+    "NEW_EQUIVALENT_PRICE",
+    "ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формула (22)",
+    "Цус = Цан / (1 − Кизн)",
     FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
 )
 def new_equivalent_price(price: float, total_depreciation_pct: float) -> Dict[str, Any]:
     """Price a used analog would have as new (formula 22).
@@ -102,10 +104,11 @@ def _non_negative(name: str, value: Any) -> float:
 
 
 @method_card(
-    'PARAMETER_UNIT_PRICE',
-    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», разд. 5.6',
-    'g = (Ц1 − Ц2) / (X1 − X2)',
+    "PARAMETER_UNIT_PRICE",
+    "ФСО №10, п. 13; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», разд. 5.6",
+    "g = (Ц1 − Ц2) / (X1 − X2)",
     FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
 )
 def parameter_unit_price(
     price_1: float, param_1: float, price_2: float, param_2: float
@@ -133,10 +136,11 @@ def parameter_unit_price(
 
 
 @method_card(
-    'CHAIN_INDEX',
-    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», индексный метод',
-    'h = (Цn / Ц0)^(1/n)',
+    "CHAIN_INDEX",
+    "ФСО №10, п. 14; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», индексный метод",
+    "h = (Цn / Ц0)^(1/n)",
     FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
 )
 def chain_index(price_start: float, price_end: float, periods: float) -> Dict[str, Any]:
     """Average chain price index between two prices of a similar object.
@@ -156,10 +160,11 @@ def chain_index(price_start: float, price_end: float, periods: float) -> Dict[st
 
 
 @method_card(
-    'INDEX_PRICE',
-    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», индексный метод',
-    'ПВСт = ПВС0 × h^n',
+    "INDEX_PRICE",
+    "ФСО №10, п. 14; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», индексный метод",
+    "ПВСт = ПВС0 × h^n",
     FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
 )
 def index_price(base_price: float, chain_index: float, periods: float) -> Dict[str, Any]:
     """Index a known past price to the valuation date (index method).
@@ -183,10 +188,11 @@ def index_price(base_price: float, chain_index: float, periods: float) -> Dict[s
 
 
 @method_card(
-    'PHYSICAL_DEPRECIATION',
-    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», табл. 5, стр. 15',
-    'ФИ = Р·n/ПВС + (Кзф/Кзн)·n/(Nэж·ПВС)·(ПВС − Сут − Р·Nэж)',
+    "PHYSICAL_DEPRECIATION",
+    "ФСО №10, п. 14 (д); Козлов В.В., Фролов И.С. «Оценка машин и оборудования», табл. 5, стр. 15",
+    "ФИ = Р·n/ПВС + (Кзф/Кзн)·n/(Nэж·ПВС)·(ПВС − Сут − Р·Nэж)",
     FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
 )
 def physical_depreciation(
     age_years: float,
@@ -268,10 +274,11 @@ def physical_depreciation(
 
 
 @method_card(
-    'SCRAP_VALUE',
-    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», табл. 5, стр. 26',
-    'Сут = М × См − затраты на утилизацию',
+    "SCRAP_VALUE",
+    "ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», табл. 5, стр. 26",
+    "Сут = М × См − затраты на утилизацию",
     FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
 )
 def scrap_value(
     mass_kg: float, scrap_price_per_kg: float, disposal_cost: float = 0
@@ -293,10 +300,11 @@ def scrap_value(
 
 
 @method_card(
-    'MACHINERY_COST',
-    'ФСО №10, п. 14; ФСО V; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формула (10)',
-    'V = C × (1 − СО) + Сут',
+    "MACHINERY_COST",
+    "ФСО №10, п. 14; ФСО V, пп. 24, 33; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формула (10)",
+    "V = C × (1 − СО) + Сут",
     FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-10/",
 )
 def residual_value(
     replacement_cost: float, total_depreciation_pct: float, salvage_value: float = 0
@@ -368,10 +376,11 @@ def _structure_fields(structure: Dict[str, Optional[float]]) -> Dict[str, Option
 
 
 @method_card(
-    'COST_FROM_PRICE',
-    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формулы (13), (16)',
-    'Сп = (1 − Кр)·Ц/(1 + НДС); Сп = (1 − Нпр − Кчр)·Ц/((1 + НДС)(1 − Нпр))',
+    "COST_FROM_PRICE",
+    "ФСО №10, п. 14; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формулы (13), (16)",
+    "Сп = (1 − Кр)·Ц/(1 + НДС); Сп = (1 − Нпр − Кчр)·Ц/((1 + НДС)(1 − Нпр))",
     FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
 )
 def cost_from_price(
     price: float,
@@ -395,10 +404,11 @@ def cost_from_price(
 
 
 @method_card(
-    'PRICE_FROM_COST',
-    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формулы (12), (15)',
-    'Ц = (1 + НДС)·Сп/(1 − Кр); Ц = (1 + НДС)(1 − Нпр)·Сп/(1 − Нпр − Кчр)',
+    "PRICE_FROM_COST",
+    "ФСО №10, п. 14; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формулы (12), (15)",
+    "Ц = (1 + НДС)·Сп/(1 − Кр); Ц = (1 + НДС)(1 − Нпр)·Сп/(1 − Нпр − Кчр)",
     FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
 )
 def price_from_cost(
     cost: float,
@@ -418,10 +428,11 @@ def price_from_cost(
 
 
 @method_card(
-    'QUALITATIVE_ADJUSTMENTS',
-    'ФСО V; ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формулы (26)–(27)',
-    'С = (Цн·N−в + Цв·N+н) / (N−в + N+н)',
+    "QUALITATIVE_ADJUSTMENTS",
+    "ФСО V; ФСО №10, п. 13; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формулы (26)–(27)",
+    "С = (Цн·N−в + Цв·N+н) / (N−в + N+н)",
     FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
 )
 def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     """Method of directed qualitative adjustments (formulas 26 and 27).

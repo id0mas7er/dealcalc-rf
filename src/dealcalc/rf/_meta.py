@@ -9,6 +9,7 @@ list of ``checks`` — warnings the appraiser has to review.
 from __future__ import annotations
 
 import functools
+from datetime import date
 from collections.abc import Mapping
 from typing import Any, Callable, Dict, List, Sequence
 
@@ -25,33 +26,124 @@ FORMULA_RECOMMENDATION = "частная методическая рекомен
 FORMULA_METHODICAL = "методическая формула учебного источника, не норма ФСО"
 
 
+VALUE_TYPES = ("рыночная", "инвестиционная", "равновесная", "ликвидационная")
+VAT_MODES = {
+    "included": "с НДС",
+    "excluded": "без НДС",
+    "not_applicable": "НДС не применяется",
+}
+
+
+def assignment_context(context: Any) -> Dict[str, Any]:
+    """Validate the assignment context carried by a calculation.
+
+    ``context`` may hold ``valuation_date`` (YYYY-MM-DD), ``value_type``
+    (ФСО II), ``vat`` (``included``, ``excluded``, ``not_applicable``),
+    ``vat_rate_pct`` and ``assignment_id``.
+    """
+
+    if context is None:
+        context = {}
+    if not isinstance(context, Mapping):
+        raise ValueError("context must be an object")
+    unknown = set(context) - {"valuation_date", "value_type", "vat", "vat_rate_pct", "assignment_id"}
+    if unknown:
+        raise ValueError(f"context has unknown fields: {sorted(unknown)}")
+
+    valuation_date = context.get("valuation_date")
+    if valuation_date not in (None, ""):
+        try:
+            valuation_date = date.fromisoformat(str(valuation_date)).isoformat()
+        except ValueError as exc:
+            raise ValueError("context.valuation_date must be YYYY-MM-DD") from exc
+    else:
+        valuation_date = None
+
+    value_type = context.get("value_type")
+    if value_type not in (None, ""):
+        value_type = str(value_type).strip().lower()
+        if not any(value_type.startswith(name) for name in VALUE_TYPES):
+            raise ValueError(f"context.value_type must be one of {', '.join(VALUE_TYPES)}")
+    else:
+        value_type = None
+
+    vat = context.get("vat")
+    if vat not in (None, ""):
+        if vat not in VAT_MODES:
+            raise ValueError("context.vat must be 'included', 'excluded' or 'not_applicable'")
+    else:
+        vat = None
+    vat_rate = context.get("vat_rate_pct")
+    if vat_rate is not None:
+        if isinstance(vat_rate, bool) or not isinstance(vat_rate, (int, float)) or vat_rate < 0:
+            raise ValueError("context.vat_rate_pct must be a non-negative number")
+        vat_rate = float(vat_rate)
+
+    assignment_id = context.get("assignment_id")
+    return {
+        "assignment_id": None if assignment_id in (None, "") else str(assignment_id),
+        "valuation_date": valuation_date,
+        "value_type": value_type,
+        "vat": vat,
+        "vat_label": VAT_MODES.get(vat) if vat else None,
+        "vat_rate_pct": vat_rate,
+    }
+
+
+def _context_guardrails(context: Mapping[str, Any]) -> List[str]:
+    missing = [
+        label
+        for key, label in (
+            ("valuation_date", "дата оценки"),
+            ("value_type", "вид стоимости"),
+            ("vat", "признак НДС"),
+        )
+        if context.get(key) is None
+    ]
+    if not missing:
+        return []
+    return [f"Не указаны {', '.join(missing)} (параметр context): результат нельзя переносить в отчёт без них."]
+
+
 def method_card(
-    method_id: str, standard: str, formula: str, formula_status: str
+    method_id: str,
+    standard: str,
+    formula: str,
+    formula_status: str,
+    source_url: str = "",
 ) -> Callable[[Callable[..., Dict[str, Any]]], Callable[..., Dict[str, Any]]]:
     """Wrap a calculation result into the common envelope.
 
-    The wrapped function may return ``checks`` (warnings) and ``status``;
-    without an explicit status any check turns the result into
-    "нужна проверка оценщика".
+    The wrapped function may return ``checks`` (warnings), ``guardrails``
+    (reminders), ``conditions`` and ``status``; without an explicit status
+    any check turns the result into "нужна проверка оценщика". Every
+    wrapped calculation accepts an optional keyword ``context`` with the
+    valuation date, type of value and VAT treatment of the assignment.
     """
 
     def decorate(func: Callable[..., Dict[str, Any]]) -> Callable[..., Dict[str, Any]]:
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+        def wrapper(*args: Any, context: Any = None, **kwargs: Any) -> Dict[str, Any]:
+            assignment = assignment_context(context)
             result = dict(func(*args, **kwargs))
             checks = list(result.pop("checks", []))
             guardrails = list(result.pop("guardrails", []))
             conditions = list(result.pop("conditions", []))
             guardrails += offer_guardrails(result)
+            guardrails += _context_guardrails(assignment)
             status = result.pop("status", None) or (STATUS_REVIEW if checks else STATUS_DRAFT)
+            card = {
+                "id": method_id,
+                "standard": standard,
+                "formula": formula,
+                "formula_status": formula_status,
+            }
+            if source_url:
+                card["source_url"] = source_url
             return {
                 "status": status,
-                "method_card": {
-                    "id": method_id,
-                    "standard": standard,
-                    "formula": formula,
-                    "formula_status": formula_status,
-                },
+                "context": assignment,
+                "method_card": card,
                 **result,
                 "conditions": conditions,
                 "guardrails": guardrails,

@@ -13,20 +13,28 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp_server"))
 import server  # noqa: E402
 
 EXPECTED_TOOLS = {
+    "rf_check_assignment",
+    "rf_load_listings",
     "rf_comparative_approach",
-    "rf_income_capitalization",
     "rf_net_operating_income",
     "rf_cap_rate_extraction",
+    "rf_income_capitalization",
     "rf_gross_rent_multiplier",
+    "rf_dcf_valuation",
+    "rf_gordon_terminal_value",
+    "rf_reversion_value",
+    "rf_discount_rate_build_up",
+    "rf_capital_recovery_rate",
     "rf_npv",
     "rf_irr",
-    "rf_dcf_valuation",
     "rf_cost_approach",
+    "rf_indexed_replacement_cost",
     "rf_reconcile_approaches",
+    "rf_asset_liquidation_value",
     "rf_vehicle_comparative_approach",
     "rf_braking_coefficient",
-    "rf_new_equivalent_price",
     "rf_parameter_unit_price",
+    "rf_new_equivalent_price",
     "rf_chain_index",
     "rf_index_price",
     "rf_physical_depreciation",
@@ -35,12 +43,10 @@ EXPECTED_TOOLS = {
     "rf_cost_from_price",
     "rf_price_from_cost",
     "rf_qualitative_adjustments",
-    "rf_check_assignment",
-    "rf_gordon_terminal_value",
     "rf_business_income_approach",
     "rf_business_multiples",
     "rf_net_assets",
-    "rf_liquidation_value",
+    "rf_business_liquidation_value",
     "rf_actual_share_value",
     "rf_deferred_tax_effect",
     "rf_business_interest_value",
@@ -89,3 +95,13 @@ def test_tool_call_reports_validation_error():
         asyncio.run(
             server.mcp.call_tool("rf_income_capitalization", {"noi_annual": -1, "cap_rate_pct": 12})
         )
+
+
+def test_context_is_passed_through_the_tool():
+    result = _call(
+        "rf_income_capitalization",
+        {"noi_annual": 1_200_000, "cap_rate_pct": 12, "context": {"valuation_date": "2026-10-01", "value_type": "рыночная", "vat": "excluded"}},
+    )
+
+    assert result["context"]["valuation_date"] == "2026-10-01"
+    assert result["guardrails"] == []

@@ -8,7 +8,7 @@ from dealcalc.rf import (
     business_interest_value,
     business_multiples,
     deferred_tax_effect,
-    liquidation_value,
+    business_liquidation_value,
     net_assets,
 )
 
@@ -72,10 +72,11 @@ def test_business_multiples_median():
     assert result["status"] == "черновой расчёт"
 
 
-def test_business_multiples_flags_basis_mismatch():
-    result = business_multiples(ANALOGS, 50, "EV/EBITDA", "equity")
+def test_business_multiples_basis_is_explicit_not_parsed_from_name():
+    result = business_multiples(ANALOGS, 50, "Цена/Прибыль", "equity")
 
-    assert any("инвестированному капиталу" in check for check in result["checks"])
+    assert result["basis"] == "equity"
+    assert result["checks"] == []
 
 
 @pytest.mark.parametrize(
@@ -109,7 +110,7 @@ def test_net_assets_rejects_invalid_basis():
 
 
 def test_liquidation_value_discounts_dated_events():
-    result = liquidation_value(
+    result = business_liquidation_value(
         [
             {"period": 0.5, "sale_proceeds": 1_000, "debt_payments": 300, "disposal_costs": 50},
             {"period": 1, "sale_proceeds": 500, "closure_costs": 100},
@@ -118,12 +119,12 @@ def test_liquidation_value_discounts_dated_events():
     )
 
     assert [row["net_proceeds"] for row in result["events"]] == [650.0, 400.0]
-    assert result["liquidation_value"] == pytest.approx(926.70, abs=0.01)
+    assert result["business_liquidation_value"] == pytest.approx(926.70, abs=0.01)
     assert result["checks"] == []
 
 
 def test_liquidation_value_flags_immediate_proceeds():
-    result = liquidation_value([{"period": 0, "sale_proceeds": 1_000}], 20)
+    result = business_liquidation_value([{"period": 0, "sale_proceeds": 1_000}], 20)
 
     assert "немедленными" in result["checks"][0]
 

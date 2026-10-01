@@ -75,10 +75,11 @@ def _flows(values: Any, name: str) -> List[float]:
 
 @method_card(
     "MARKET_RENT_COST_PLUS",
-    "МРз–1/26, § 17; ФСО №7; ФСО V",
+    "МРз–1/26, затратный подход (метод компенсации затрат); ФСО №7; ФСО V",
     "ЧОД_треб = V × R; ДВД = (ЧОД + расходы руб.) / (1 − расходы % ДВД); "
     "ПВД = ДВД / ((1 − недозагрузка)(1 − недосбор))",
     FORMULA_RECOMMENDATION,
+    source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/120126/",
 )
 def market_rent_cost_plus(
     property_value: float,
@@ -159,10 +160,11 @@ def market_rent_cost_plus(
 
 @method_card(
     "CELLULAR_REVERSE_CAPITALIZATION",
-    "МР–3/26 (2), §§ 9.3–9.5; ФСО №7; ФСО V",
+    "МР–3/26 (2), § 9.4 (метод обратной капитализации); ФСО №7; ФСО V",
     "V_комплекта = V_объекта × доля; ЧОД = V_комплекта × R; "
     "аренда = (ЧОД + расходы собственника) / (1 − недосбор)",
     FORMULA_RECOMMENDATION,
+    source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/3-26-v2/",
 )
 def cellular_site_rent(
     comparable_asset_value: float,
@@ -225,9 +227,10 @@ def _obsolescence_checks(amount: float) -> List[str]:
 
 @method_card(
     "EXTERNAL_OBSOLESCENCE_COST_INCOME",
-    "МРз–8/23-2, § 4.1; ФСО V",
+    "МРз–8/23-2, § 4.1; ФСО V, п. 33",
     "E_abs = V_затр без внешнего фактора − V_доход с фактором; E_% = E_abs / V_затр",
     FORMULA_ENGINEERING,
+    source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/8-23-2/",
 )
 def external_obsolescence_cost_income(
     cost_value_without_external: float,
@@ -247,15 +250,21 @@ def external_obsolescence_cost_income(
         "income_value_with_external": money(income),
         "external_obsolescence": money(amount),
         "external_obsolescence_pct": money(amount / cost * 100),
+        "guardrails": [
+            "Затратная и доходная стоимости должны отличаться только внешним фактором: если "
+            "в затратной стоимости уже вычтены физический износ и функциональное устаревание, "
+            "а доходная их не отражает (или наоборот), разница включит их повторно."
+        ],
         "checks": _obsolescence_checks(amount),
     }
 
 
 @method_card(
     "EXTERNAL_OBSOLESCENCE_PAIRED_SALES",
-    "МРз–8/23-2, § 4.2; ФСО V",
+    "МРз–8/23-2, § 4.2; ФСО V, п. 33",
     "E_ratio = 1 − V_с фактором / V_без фактора; E_abs = V_база × E_ratio",
     FORMULA_ENGINEERING,
+    source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/8-23-2/",
 )
 def external_obsolescence_paired_sales(
     value_without_impact: float,
@@ -285,9 +294,10 @@ def external_obsolescence_paired_sales(
 
 @method_card(
     "EXTERNAL_OBSOLESCENCE_DISCOUNTED_LOSSES",
-    "МРз–8/23-2, § 4.3; ФСО V",
+    "МРз–8/23-2, § 4.3; ФСО V, п. 33",
     "PV_loss = Σ (CF_без фактора − CF_с фактором)_t / (1 + r)^t",
     FORMULA_ENGINEERING,
+    source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/8-23-2/",
 )
 def external_obsolescence_lost_income(
     cash_flows_without: Sequence[float],
@@ -327,9 +337,10 @@ def external_obsolescence_lost_income(
 
 @method_card(
     "PIF_UNIT_DCF",
-    "МРз–5/23; ФСО V",
+    "МРз–5/23; ФСО V, п. 15",
     "V_пая = Σ выплаты_t / (1 + r)^t + (финальная компенсация − расходы прекращения) / (1 + r)^T",
     FORMULA_RECOMMENDATION,
+    source_url="https://srosovet.ru/press/news/030823/",
 )
 def fund_unit_value(
     distributions: Sequence[float],

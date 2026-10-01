@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
-from typing import Any, Dict, List
+from collections.abc import Mapping, Sequence
+from typing import Any, Dict, List, Optional
 
 import numpy_financial as npf
 
@@ -29,12 +29,15 @@ def _flows(cash_flows: Sequence[Any]) -> List[float]:
     return flows
 
 
-@method_card("NPV", "ФСО V", "NPV = Σ CF_t / (1 + r)^t, t = 0..n", FORMULA_TECHNICAL)
+@method_card("NPV", 'ФСО V, п. 15', "NPV = Σ CF_t / (1 + r)^t, t = 0..n", FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-v/")
 def npv(cash_flows: Sequence[float], discount_rate_pct: float) -> Dict[str, Any]:
     """Net present value of annual cash flows.
 
-    ``cash_flows[0]`` is the flow at period 0 (usually the investment, a
-    negative number); ``cash_flows[t]`` is discounted by ``(1 + r) ** t``.
+    ``cash_flows[0]`` is the flow at PERIOD 0 (usually the investment, a
+    negative number, not discounted); ``cash_flows[t]`` is discounted by
+    ``(1 + r) ** t``. Unlike :func:`dcf_valuation`, where the first flow is
+    year 1.
     Every period's discount factor and present value are returned.
     """
 
@@ -62,13 +65,15 @@ def npv(cash_flows: Sequence[float], discount_rate_pct: float) -> Dict[str, Any]
             }
         )
     return {
+        "first_cash_flow_period": 0,
         "discount_rate_pct": money(rate_pct),
         "npv": money(total),
         "periods": periods,
     }
 
 
-@method_card("IRR", "ФСО V", "Σ CF_t / (1 + IRR)^t = 0", FORMULA_TECHNICAL)
+@method_card("IRR", 'ФСО V', "Σ CF_t / (1 + IRR)^t = 0", FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-v/")
 def irr(cash_flows: Sequence[float]) -> Dict[str, Any]:
     """Internal rate of return of annual cash flows, in percent.
 
@@ -115,6 +120,7 @@ def _rate(name: str, value: Any) -> float:
     "ФСО V, п. 21",
     "TV_n = CF_(n+1) / (r − g)",
     "частная модель постоянного роста; условия применения — ФСО V, п. 21, параметры не заданы",
+    source_url="https://srosovet.ru/activities/npa/fso-v/",
 )
 def gordon_terminal_value(
     cash_flow_next: float, discount_rate_pct: float, growth_rate_pct: float
@@ -141,4 +147,223 @@ def gordon_terminal_value(
             "длительный или неограниченный срок использования",
             "обоснованные ставка r и темп роста g, r > g",
         ],
+    }
+
+
+@method_card(
+    "ASSET_LIQUIDATION_VALUE",
+    "ФСО II (ликвидационная стоимость; вынужденная продажа)",
+    "V_л = V_р × (1 + r)^(−(T_р − T_л) / 12)",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-ii/",
+)
+def asset_liquidation_value(
+    market_value: float,
+    discount_rate_pct: float,
+    typical_exposure_months: float,
+    liquidation_exposure_months: float,
+    additional_costs: float = 0,
+) -> Dict[str, Any]:
+    """Liquidation value of a single asset (property, machine, vehicle).
+
+    The market value is discounted for the shortened exposure period of a
+    forced sale: ``V_l = V_m × (1 + r) ** (−(T_typical − T_forced) / 12)``,
+    where ``r`` is the appraiser's annual rate and the periods are in
+    months; ``additional_costs`` (sale costs specific to the forced sale)
+    are subtracted. The rate, both periods and the costs must be justified.
+    """
+
+    value = _rate("market_value", market_value)
+    if value < 0:
+        raise ValueError("market_value must be non-negative")
+    rate = _rate("discount_rate_pct", discount_rate_pct)
+    typical = _flows([typical_exposure_months])[0]
+    forced = _flows([liquidation_exposure_months])[0]
+    if typical <= 0 or forced < 0:
+        raise ValueError("exposure periods must be positive months")
+    if forced > typical:
+        raise ValueError("liquidation_exposure_months must not exceed typical_exposure_months")
+    costs = _flows([additional_costs])[0]
+    if costs < 0:
+        raise ValueError("additional_costs must be non-negative")
+
+    factor = (1 + rate / 100) ** (-(typical - forced) / 12)
+    discounted = value * factor
+    liquidation = discounted - costs
+    checks = []
+    if liquidation < 0:
+        checks.append("Ликвидационная стоимость отрицательна: проверьте затраты и ставку.")
+    return {
+        "value_kind": "ликвидационная стоимость",
+        "market_value": money(value),
+        "discount_rate_pct": money(rate),
+        "typical_exposure_months": typical,
+        "liquidation_exposure_months": forced,
+        "liquidation_factor": round(factor, 6),
+        "liquidation_discount_pct": money((1 - factor) * 100),
+        "additional_costs": money(costs),
+        "liquidation_value": money(liquidation),
+        "guardrails": [
+            "Обоснуйте типичный срок экспозиции, срок вынужденной продажи и ставку дисконтирования.",
+            "Ликвидационная стоимость моделирует вынужденную продажу: не подменяйте ею рыночную.",
+        ],
+        "checks": checks,
+    }
+
+
+def _named_premiums(premiums: Any) -> List[Dict[str, Any]]:
+    if isinstance(premiums, (str, bytes)) or not isinstance(premiums, Sequence):
+        raise ValueError("premiums must be a list")
+    result = []
+    for index, premium in enumerate(premiums):
+        prefix = f"premiums[{index}]"
+        if not isinstance(premium, Mapping):
+            raise ValueError(f"{prefix} must be an object")
+        name = premium.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"{prefix}.name must be a non-empty string")
+        value = _flows([premium.get("value")])[0]
+        item: Dict[str, Any] = {"name": name.strip(), "value_pct": money(value)}
+        if premium.get("source"):
+            item["source"] = str(premium["source"])
+        result.append(item)
+    return result
+
+
+@method_card(
+    "DISCOUNT_RATE_BUILD_UP",
+    "ФСО V, п. 15; ФСО №7, п. 23 (д)",
+    "Y = безрисковая ставка + Σ премий за риски",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
+)
+def discount_rate_build_up(
+    risk_free_rate_pct: float,
+    premiums: Sequence[Mapping[str, Any]],
+    risk_free_source: str = "",
+) -> Dict[str, Any]:
+    """Discount rate by the cumulative build-up method.
+
+    ``Y = risk-free rate + Σ premiums``; each premium is ``{"name",
+    "value", "source"}`` (e.g. risk of investment, low liquidity through the
+    exposure period, investment management). Every component and its source
+    come from the appraiser.
+    """
+
+    free = _rate("risk_free_rate_pct", risk_free_rate_pct)
+    items = _named_premiums(premiums)
+    total = free + sum(item["value_pct"] for item in items)
+    checks = []
+    if not risk_free_source:
+        checks.append("Не указан источник безрисковой ставки (например, доходность ОФЗ на дату оценки).")
+    no_source = [item["name"] for item in items if "source" not in item]
+    if no_source:
+        checks.append(f"Не указаны источники премий: {no_source}.")
+    return {
+        "risk_free_rate_pct": money(free),
+        "risk_free_source": risk_free_source or None,
+        "premiums": items,
+        "discount_rate_pct": money(total),
+        "checks": checks,
+    }
+
+
+_RECOVERY_METHODS = {
+    "ring": "Ринга (прямолинейный возврат)",
+    "inwood": "Инвуда (возврат по ставке дохода)",
+    "hoskold": "Хоскольда (возврат по безрисковой ставке)",
+}
+
+
+@method_card(
+    "CAPITAL_RECOVERY_RATE",
+    "ФСО №7, п. 23 (д): ставка с учётом модели возврата капитала",
+    "R = Y + норма возврата; Ринг: 1/n; Инвуд: Y/((1+Y)^n − 1); Хоскольд: Yб/((1+Yб)^n − 1)",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
+)
+def capital_recovery_rate(
+    discount_rate_pct: float,
+    remaining_life_years: float,
+    method: str,
+    safe_rate_pct: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Capitalization rate = return on capital + return of capital.
+
+    ``method``: ``ring`` (straight-line, 1/n), ``inwood`` (sinking fund at
+    the discount rate) or ``hoskold`` (sinking fund at the safe rate
+    ``safe_rate_pct``). ``remaining_life_years`` is the remaining economic
+    life of the depreciating part. The choice of model is the appraiser's.
+    """
+
+    if method not in _RECOVERY_METHODS:
+        raise ValueError("method must be 'ring', 'inwood' or 'hoskold'")
+    rate = _rate("discount_rate_pct", discount_rate_pct) / 100
+    life = _flows([remaining_life_years])[0]
+    if life <= 0:
+        raise ValueError("remaining_life_years must be greater than 0")
+
+    def sinking_fund(y: float) -> float:
+        return 1 / life if y == 0 else y / ((1 + y) ** life - 1)
+
+    if method == "ring":
+        recovery = 1 / life
+        safe = None
+    elif method == "inwood":
+        recovery = sinking_fund(rate)
+        safe = None
+    else:
+        if safe_rate_pct is None:
+            raise ValueError("safe_rate_pct is required for the Hoskold method")
+        safe = _rate("safe_rate_pct", safe_rate_pct) / 100
+        recovery = sinking_fund(safe)
+    return {
+        "method": method,
+        "method_label": _RECOVERY_METHODS[method],
+        "discount_rate_pct": money(rate * 100),
+        "safe_rate_pct": None if safe is None else money(safe * 100),
+        "remaining_life_years": life,
+        "recovery_rate_pct": round(recovery * 100, 4),
+        "capitalization_rate_pct": round((rate + recovery) * 100, 4),
+        "checks": [],
+    }
+
+
+@method_card(
+    "REVERSION_VALUE",
+    "ФСО V, п. 15; ФСО №7, п. 23 (б)",
+    "V_рев = ЧОД_(n+1) / R_терм × (1 − расходы на продажу)",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
+)
+def reversion_value(
+    noi_next_year: float,
+    terminal_cap_rate_pct: float,
+    selling_costs_pct: float = 0,
+) -> Dict[str, Any]:
+    """Reversion (resale) value at the end of the forecast period.
+
+    ``NOI of year n + 1 / terminal capitalization rate``, less selling costs
+    as a percent of the gross reversion. Use the result as the
+    ``terminal_value`` of the discounted cash flow.
+    """
+
+    noi = _flows([noi_next_year])[0]
+    if noi < 0:
+        raise ValueError("noi_next_year must be non-negative")
+    rate = _rate("terminal_cap_rate_pct", terminal_cap_rate_pct)
+    if rate <= 0:
+        raise ValueError("terminal_cap_rate_pct must be greater than 0")
+    costs = _flows([selling_costs_pct])[0]
+    if not 0 <= costs < 100:
+        raise ValueError("selling_costs_pct must be in [0, 100)")
+    gross = noi / (rate / 100)
+    return {
+        "noi_next_year": money(noi),
+        "terminal_cap_rate_pct": money(rate),
+        "gross_reversion": money(gross),
+        "selling_costs_pct": money(costs),
+        "selling_costs": money(gross * costs / 100),
+        "reversion_value": money(gross * (1 - costs / 100)),
+        "checks": [],
     }

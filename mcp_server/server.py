@@ -1,17 +1,14 @@
-"""Local (stdio) MCP server exposing the DealCalc RF engine.
+"""Локальный (stdio) MCP-сервер расчётов DealCalc RF.
 
-Each function in :mod:`dealcalc.rf` is surfaced as a FastMCP tool with the
-same signature, units, and a clear docstring (the docstring is the
-description the AI agent sees). Run locally with::
+Каждая функция :mod:`dealcalc.rf` доступна как инструмент FastMCP с той же
+сигнатурой; описание инструмента — то, что видит ИИ-агент. Запуск::
 
     python mcp_server/server.py
-
-which serves over stdio for use with Claude Desktop / Claude Code.
 """
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Callable, List, Optional
 
 from mcp.server.fastmcp import FastMCP
 
@@ -19,42 +16,83 @@ from dealcalc import rf
 
 mcp = FastMCP("dealcalc-rf")
 
+CONTEXT_NOTE = (
+    "\n\ncontext (необязательно): {valuation_date: 'ГГГГ-ММ-ДД', value_type: рыночная | "
+    "инвестиционная | равновесная | ликвидационная, vat: included | excluded | "
+    "not_applicable, vat_rate_pct, assignment_id} — возвращается в результате; без него "
+    "результат нельзя переносить в отчёт.\n"
+    "Результат всегда черновик для проверки оценщиком: status, method_card (стандарт, "
+    "формула, статус формулы, ссылка), conditions, guardrails, checks."
+)
+
+
+def tool(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Register a calculation tool; its description gets the context note."""
+
+    return mcp.tool(description=(func.__doc__ or "").strip() + CONTEXT_NOTE)(func)
+
 
 # ---------------------------------------------------------------------------
-# Russian Federation valuation aids
+# Задание на оценку и данные
 # ---------------------------------------------------------------------------
 
 
 @mcp.tool()
+def rf_check_assignment(assignment: dict) -> dict:
+    """Проверка задания на оценку до любого расчёта (ФСО III, IV, II). Вызывайте первой.
+
+    assignment: object_type (real_estate | business | machinery | vehicle),
+    object_description, rights, purpose, value_type (рыночная, инвестиционная,
+    равновесная, ликвидационная), value_premises, valuation_date (ГГГГ-ММ-ДД) и
+    рекомендуемые сведения по типу объекта. Без критических сведений — статус
+    «недостаточно данных» и перечень пробелов; также признаки применимости подходов
+    и условия остановки расчёта."""
+    return rf.check_assignment(assignment)
+
+
+@mcp.tool()
+def rf_load_listings(path: str, source: str, listing_type: str = "property") -> dict:
+    """Импорт сохранённых объявлений из локального файла CSV, JSON или JSONL (без сети).
+
+    listing_type: property | vehicle. Русские названия колонок, цена в рублях,
+    адрес, дата публикации (date — дата цены), тип цены (по умолчанию «предложение»),
+    пошаговые корректировки; дубли удаляются. Результат — аналоги для сравнительного
+    подхода."""
+    listings = rf.load_listings(path, source, listing_type)
+    return {"count": len(listings), "listings": listings}
+
+
+# ---------------------------------------------------------------------------
+# Недвижимость: сравнительный подход
+# ---------------------------------------------------------------------------
+
+
+@tool
 def rf_comparative_approach(
-    subject_area_sqm: float, comparables: List[dict], currency: str = "RUB"
+    subject_area_sqm: float,
+    comparables: List[dict],
+    currency: str = "RUB",
+    weighting: str = "manual",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Calculate an indicated value from adjusted comparable unit prices.
+    """Сравнительный подход для недвижимости (ФСО V; ФСО №7, п. 22): стоимость по скорректированным ценам за м².
 
-    Each comparable contains price and area_sqm, with optional adjustments,
-    weight, source, and date. adjustments is a list of {"name", "type",
-    "value"} steps applied in order to the price per m²: type "pct" is a
-    percent, "abs" is RUB per m². Put the bargaining discount first. The
-    result shows every step, net and gross adjustment, and the coefficient of
-    variation against the 33% threshold. Adjustments and weights are supplied
-    by the appraiser; the tool does not impose universal market coefficients.
-    Other step types: {"type": "param", "subject", "analog", "exponent"}
-    multiplies by (subject / analog) ** exponent (braking coefficient);
-    {"type": "depreciation", "analog_pct", "subject_pct"} multiplies by
-    (1 - subject_pct/100) / (1 - analog_pct/100) to compare wear.
-    """
-    return rf.comparative_approach(subject_area_sqm, comparables, currency)
+    Аналог: price, area_sqm, adjustments, weight и происхождение (source, date, url,
+    price_type сделка|предложение, conditions, reliability). adjustments — шаги по
+    порядку к цене за м²: {"name", "type", ...}: pct (процент), pct_group (подряд
+    идущие суммируются и применяются один раз), abs (руб./м²), param (subject, analog,
+    exponent — коэффициент торможения), depreciation (analog_pct, subject_pct).
+    Скидку на торг ставьте первой. weighting: manual | inverse_gross | inverse_count.
+    Показываются все шаги, валовая и итоговая корректировки, коэффициент вариации (33%)."""
+    return rf.comparative_approach(subject_area_sqm, comparables, currency, weighting, context=context)
 
 
-@mcp.tool()
-def rf_income_capitalization(
-    noi_annual: float, cap_rate_pct: float, currency: str = "RUB"
-) -> dict:
-    """Calculate value by direct capitalization of annual NOI."""
-    return rf.income_capitalization(noi_annual, cap_rate_pct, currency)
+# ---------------------------------------------------------------------------
+# Доходный подход
+# ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@tool
 def rf_net_operating_income(
     potential_gross_income: Optional[float] = None,
     rentable_area_sqm: Optional[float] = None,
@@ -64,14 +102,13 @@ def rf_net_operating_income(
     other_income_annual: float = 0,
     operating_expenses: Optional[List[dict]] = None,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Build annual NOI: potential gross income (ПВД) -> effective gross
-    income (ДВД) -> net operating income (ЧОД).
+    """Годовой ЧОД по шагам: ПВД → ДВД → ЧОД (ФСО V; ФСО №7, п. 23).
 
-    Pass potential_gross_income, or rentable_area_sqm and rent_rate_sqm_year
-    (RUB per m² per year). ДВД = ПВД × (1 - vacancy) × (1 - collection loss)
-    + other income. operating_expenses is a list of {"name", "type", "value"}
-    items: "abs" is RUB per year, "pct" is a percent of ДВД."""
+    ПВД — готовой суммой или площадь × ставка аренды (руб./м² в год).
+    ДВД = ПВД × (1 − недозагрузка) × (1 − недосбор) + прочие доходы.
+    operating_expenses: {"name", "type": "abs" (руб./год) | "pct" (% ДВД), "value"}."""
     return rf.net_operating_income(
         potential_gross_income,
         rentable_area_sqm,
@@ -81,89 +118,138 @@ def rf_net_operating_income(
         other_income_annual,
         operating_expenses,
         currency,
+        context=context,
     )
 
 
-@mcp.tool()
-def rf_cap_rate_extraction(comparables: List[dict]) -> dict:
-    """Extract a market capitalization rate from comparable sales.
+@tool
+def rf_cap_rate_extraction(comparables: List[dict], context: Optional[dict] = None) -> dict:
+    """Ставка капитализации по рынку (ФСО №7, п. 23): ЧОД / цена продажи по каждому аналогу.
 
-    Each comparable contains price and annual noi, with optional source and
-    date. Returns each rate, mean, median, range and the coefficient of
-    variation against the 33% threshold; the appraiser chooses the rate."""
-    return rf.cap_rate_extraction(comparables)
+    Аналог: price, noi, происхождение. Среднее, медиана, диапазон, коэффициент
+    вариации; выбор ставки — за оценщиком."""
+    return rf.cap_rate_extraction(comparables, context=context)
 
 
-@mcp.tool()
+@tool
+def rf_income_capitalization(
+    noi_annual: float, cap_rate_pct: float, currency: str = "RUB", context: Optional[dict] = None
+) -> dict:
+    """Прямая капитализация (ФСО V, п. 14): стоимость = годовой ЧОД / ставка капитализации."""
+    return rf.income_capitalization(noi_annual, cap_rate_pct, currency, context=context)
+
+
+@tool
 def rf_gross_rent_multiplier(
     comparables: List[dict],
     subject_gross_income: Optional[float] = None,
     statistic: str = "mean",
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Value by the gross rent multiplier (price / annual gross income).
+    """Валовой рентный мультипликатор: ВРМ = цена / годовой валовой доход аналога.
 
-    Each comparable contains price and gross_income, with optional source and
-    date. Use the same income basis (potential or effective gross income) for
-    comparables and subject. With subject_gross_income the indicated value is
-    the "mean" or "median" multiplier times that income."""
-    return rf.gross_rent_multiplier(comparables, subject_gross_income, statistic, currency)
+    Аналог: price, gross_income, происхождение. При subject_gross_income — стоимость =
+    ВРМ (mean | median) × доход объекта. Одна база дохода (ПВД или ДВД) для всех."""
+    return rf.gross_rent_multiplier(comparables, subject_gross_income, statistic, currency, context=context)
 
 
-@mcp.tool()
-def rf_npv(cash_flows: List[float], discount_rate_pct: float) -> dict:
-    """Net present value; cash_flows[0] is period 0 (usually the investment).
-    Returns the discount factor and present value of every period."""
-    return rf.npv(cash_flows, discount_rate_pct)
-
-
-@mcp.tool()
-def rf_irr(cash_flows: List[float]) -> dict:
-    """Internal rate of return in percent; cash_flows[0] is period 0 and the
-    flows must contain both negative and positive values."""
-    return rf.irr(cash_flows)
-
-
-@mcp.tool()
-def rf_check_assignment(assignment: dict) -> dict:
-    """Check the valuation assignment before any calculation (ФСО III, IV).
-
-    assignment: object_type (real_estate | business | machinery | vehicle),
-    object_description, rights, purpose, value_type (рыночная,
-    инвестиционная, равновесная, ликвидационная), value_premises,
-    valuation_date (YYYY-MM-DD) and recommended fields for the object type.
-    Missing critical items give the status "недостаточно данных". Call it
-    first; do not start with a formula."""
-    return rf.check_assignment(assignment)
-
-
-@mcp.tool()
-def rf_gordon_terminal_value(
-    cash_flow_next: float, discount_rate_pct: float, growth_rate_pct: float
-) -> dict:
-    """Terminal value by the constant-growth model TV = CF(n+1) / (r - g);
-    requires r > g, a stable flow and a long or unlimited useful life."""
-    return rf.gordon_terminal_value(cash_flow_next, discount_rate_pct, growth_rate_pct)
-
-
-@mcp.tool()
+@tool
 def rf_dcf_valuation(
     cash_flows: List[float],
     discount_rate_pct: float,
     terminal_value: float = 0,
     currency: str = "RUB",
     mid_year: bool = False,
+    terminal_timing: str = "end",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Calculate the present value of annual cash flows and terminal value.
+    """Дисконтирование денежных потоков (ФСО V, п. 15).
 
-    Cash flows are discounted at the end of each year, or at its middle when
-    mid_year is true; the terminal value at the end of the last year."""
+    cash_flows[0] — поток ПЕРВОГО ГОДА (период 1, не 0, в отличие от rf_npv).
+    mid_year — дисконтирование на середину года. terminal_timing: end (конец года n)
+    | mid (n − 0,5 — для стоимости по Гордону из потока середины года n + 1)."""
     return rf.dcf_valuation(
-        cash_flows, discount_rate_pct, terminal_value, currency, mid_year
+        cash_flows, discount_rate_pct, terminal_value, currency, mid_year, terminal_timing, context=context
     )
 
 
-@mcp.tool()
+@tool
+def rf_gordon_terminal_value(
+    cash_flow_next: float, discount_rate_pct: float, growth_rate_pct: float, context: Optional[dict] = None
+) -> dict:
+    """Постпрогнозная стоимость по модели Гордона (ФСО V, п. 21): TV = CF(n+1) / (r − g).
+
+    Требует r > g, устойчивый поток и длительный или неограниченный срок использования."""
+    return rf.gordon_terminal_value(cash_flow_next, discount_rate_pct, growth_rate_pct, context=context)
+
+
+@tool
+def rf_reversion_value(
+    noi_next_year: float,
+    terminal_cap_rate_pct: float,
+    selling_costs_pct: float = 0,
+    context: Optional[dict] = None,
+) -> dict:
+    """Стоимость реверсии: ЧОД года n + 1 / терминальная ставка капитализации × (1 − расходы на продажу).
+
+    Результат используется как terminal_value в rf_dcf_valuation."""
+    return rf.reversion_value(noi_next_year, terminal_cap_rate_pct, selling_costs_pct, context=context)
+
+
+@tool
+def rf_discount_rate_build_up(
+    risk_free_rate_pct: float,
+    premiums: List[dict],
+    risk_free_source: str = "",
+    context: Optional[dict] = None,
+) -> dict:
+    """Ставка дисконтирования методом кумулятивного построения: безрисковая ставка + Σ премий.
+
+    premiums: {"name", "value", "source"} — риск вложения, низкая ликвидность (срок
+    экспозиции), инвестиционный менеджмент и др. Источник безрисковой ставки (ОФЗ на
+    дату оценки) и премий обязателен — иначе замечание."""
+    return rf.discount_rate_build_up(risk_free_rate_pct, premiums, risk_free_source, context=context)
+
+
+@tool
+def rf_capital_recovery_rate(
+    discount_rate_pct: float,
+    remaining_life_years: float,
+    method: str,
+    safe_rate_pct: Optional[float] = None,
+    context: Optional[dict] = None,
+) -> dict:
+    """Ставка капитализации = ставка дохода + норма возврата капитала (ФСО №7, п. 23 (д)).
+
+    method: ring (1/n) | inwood (фонд возмещения по ставке дохода) | hoskold (фонд
+    возмещения по безрисковой ставке safe_rate_pct). remaining_life_years — оставшийся
+    срок экономической жизни. Выбор модели — за оценщиком."""
+    return rf.capital_recovery_rate(
+        discount_rate_pct, remaining_life_years, method, safe_rate_pct, context=context
+    )
+
+
+@tool
+def rf_npv(cash_flows: List[float], discount_rate_pct: float, context: Optional[dict] = None) -> dict:
+    """Чистая приведённая стоимость. cash_flows[0] — поток ПЕРИОДА 0 (обычно вложения, не дисконтируется).
+
+    Показываются коэффициент дисконтирования и приведённая стоимость каждого периода."""
+    return rf.npv(cash_flows, discount_rate_pct, context=context)
+
+
+@tool
+def rf_irr(cash_flows: List[float], context: Optional[dict] = None) -> dict:
+    """Внутренняя норма доходности, %. cash_flows[0] — период 0; нужна смена знака потоков."""
+    return rf.irr(cash_flows, context=context)
+
+
+# ---------------------------------------------------------------------------
+# Затратный подход, согласование, ликвидационная стоимость
+# ---------------------------------------------------------------------------
+
+
+@tool
 def rf_cost_approach(
     replacement_cost: float,
     land_value: float = 0,
@@ -172,10 +258,13 @@ def rf_cost_approach(
     external_depreciation_pct: float = 0,
     entrepreneurial_profit_pct: float = 0,
     currency: str = "RUB",
+    profit_base: str = "improvements",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Calculate land plus improvements: replacement cost with entrepreneurial
-    profit, reduced by physical, functional and external depreciation combined
-    multiplicatively: 1 - (1-phys)(1-func)(1-ext)."""
+    """Затратный подход для недвижимости (ФСО №7, п. 24 (г); ФСО V, пп. 24, 31, 33).
+
+    V = земля + (затраты + прибыль предпринимателя) × (1 − Иф)(1 − Ифу)(1 − Иэ).
+    profit_base: improvements (ПП от затрат) | land_and_improvements (ПП от затрат и земли)."""
     return rf.cost_approach(
         replacement_cost,
         land_value,
@@ -184,98 +273,150 @@ def rf_cost_approach(
         external_depreciation_pct,
         entrepreneurial_profit_pct,
         currency,
+        profit_base,
+        context=context,
     )
 
 
-@mcp.tool()
+@tool
+def rf_indexed_replacement_cost(
+    base_cost: float,
+    indices: List[dict],
+    regional_coefficient: float = 1,
+    vat_pct: float = 0,
+    base_label: str = "",
+    currency: str = "RUB",
+    context: Optional[dict] = None,
+) -> dict:
+    """Затраты на замещение на дату оценки по цепочке индексов (ФСО №7, п. 24 (г)).
+
+    base_cost — затраты в базисных ценах (УПВС 1969, цены 1984, КО-ИНВЕСТ);
+    indices — {"name", "value", "source"} по порядку; затем региональный коэффициент и
+    НДС (ставка — входной параметр). Каждый шаг показывается отдельно."""
+    return rf.indexed_replacement_cost(
+        base_cost, indices, regional_coefficient, vat_pct, base_label, currency, context=context
+    )
+
+
+@tool
 def rf_reconcile_approaches(
     approach_values: dict,
     weights: dict,
     max_divergence_pct: float,
     justification: Optional[str] = None,
     currency: str = "RUB",
+    divergence_base: str = "min",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Reconcile indicated values with appraiser-supplied weights (sum 1).
+    """Согласование результатов подходов (ФСО V, п. 3). Механическое усреднение не допускается.
 
-    No default weights: mechanical averaging is not allowed. A weight of 0
-    excludes an approach. max_divergence_pct is the appraiser's threshold of
-    material divergence ((max - min) / min); above it the result is "not
-    reconciled automatically" unless a justification is given."""
+    weights — веса оценщика с суммой 1, вес 0 исключает подход. max_divergence_pct —
+    порог существенного расхождения оценщика; расхождение = (max − min) / база × 100,
+    divergence_base: min | mean | max. Выше порога без justification — статус
+    «согласование не автоматизировано»."""
     return rf.reconcile_approaches(
-        approach_values, weights, max_divergence_pct, justification, currency
+        approach_values, weights, max_divergence_pct, justification, currency, divergence_base, context=context
     )
 
 
-@mcp.tool()
+@tool
+def rf_asset_liquidation_value(
+    market_value: float,
+    discount_rate_pct: float,
+    typical_exposure_months: float,
+    liquidation_exposure_months: float,
+    additional_costs: float = 0,
+    context: Optional[dict] = None,
+) -> dict:
+    """Ликвидационная стоимость отдельного объекта (ФСО II): недвижимость, машина, автомобиль.
+
+    V_л = V_р × (1 + r)^(−(T_типичный − T_вынужденный)/12) − дополнительные затраты;
+    сроки в месяцах, ставка годовая. Срок экспозиции и ставку обосновывает оценщик.
+    Для бизнеса при ликвидации — rf_business_liquidation_value."""
+    return rf.asset_liquidation_value(
+        market_value,
+        discount_rate_pct,
+        typical_exposure_months,
+        liquidation_exposure_months,
+        additional_costs,
+        context=context,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Автомобили, машины и оборудование (ФСО №10)
+# ---------------------------------------------------------------------------
+
+
+@tool
 def rf_vehicle_comparative_approach(
     subject: dict,
     comparables: List[dict],
     currency: str = "RUB",
     max_year_diff: Optional[float] = None,
     max_mileage_diff: Optional[float] = None,
+    weighting: str = "manual",
+    match: str = "exact",
+    synonyms: Optional[dict] = None,
+    context: Optional[dict] = None,
 ) -> dict:
-    """Estimate a vehicle from matched and explicitly adjusted comparables.
+    """Сравнительный подход для автомобиля (ФСО V; ФСО №10, п. 13): итог — взвешенная медиана.
 
-    The subject and comparables use normalized fields such as brand, model,
-    year, mileage_km, and price_rub. Optional adjustments is a list of
-    {"name", "type", "value"} steps applied in order: type "pct" is a percent,
-    "abs" is RUB. Put the bargaining discount first. The result shows every
-    step, net and gross adjustment, and the coefficient of variation against
-    the 33% threshold. No automatic depreciation coefficient is imposed.
-    Other step types: {"type": "param", "subject", "analog", "exponent"}
-    multiplies by (subject / analog) ** exponent (braking coefficient);
-    {"type": "depreciation", "analog_pct", "subject_pct"} multiplies by
-    (1 - subject_pct/100) / (1 - analog_pct/100) to compare wear.
-    """
+    Подбор по марке и модели с синонимами (ВАЗ/Lada/Лада) и транслитерацией;
+    match: exact | contains (Vesta → Vesta SW Cross); synonyms: {каноническое имя:
+    [написания]} — для марок и моделей. Ограничения по году и пробегу задаёт оценщик
+    (умолчаний нет). adjustments — как в rf_comparative_approach, abs — в рублях;
+    weighting: manual | inverse_gross | inverse_count."""
     return rf.vehicle_comparative_approach(
         subject,
         comparables,
         currency,
         max_year_diff,
         max_mileage_diff,
+        weighting,
+        match,
+        synonyms,
+        context=context,
     )
 
 
-@mcp.tool()
+@tool
 def rf_braking_coefficient(
-    price_1: float, param_1: float, price_2: float, param_2: float
+    price_1: float, param_1: float, price_2: float, param_2: float, context: Optional[dict] = None
 ) -> dict:
-    """Braking coefficient b = ln(price_2/price_1) / ln(param_2/param_1) of a
-    parameter from two analogs that differ only in this parameter. Use it as
-    the exponent of a "param" adjustment step."""
-    return rf.braking_coefficient(price_1, param_1, price_2, param_2)
+    """Коэффициент торможения b = ln(Ц2/Ц1) / ln(X2/X1) по двум аналогам, различающимся одним параметром.
+
+    Используется как exponent в шаге корректировки param."""
+    return rf.braking_coefficient(price_1, param_1, price_2, param_2, context=context)
 
 
-@mcp.tool()
-def rf_new_equivalent_price(price: float, total_depreciation_pct: float) -> dict:
-    """Price a used analog would have as new:
-    price / (1 - total_depreciation_pct / 100)."""
-    return rf.new_equivalent_price(price, total_depreciation_pct)
-
-
-@mcp.tool()
+@tool
 def rf_parameter_unit_price(
-    price_1: float, param_1: float, price_2: float, param_2: float
+    price_1: float, param_1: float, price_2: float, param_2: float, context: Optional[dict] = None
 ) -> dict:
-    """"Price" of one unit of a parameter g = (price_1 - price_2) /
-    (param_1 - param_2) from two analogs that differ only in this parameter.
-    Use g * (subject_param - analog_param) as an "abs" adjustment step."""
-    return rf.parameter_unit_price(price_1, param_1, price_2, param_2)
+    """«Цена» единицы параметра g = (Ц1 − Ц2) / (X1 − X2); поправка g × (Xобъекта − Xаналога) — шаг abs."""
+    return rf.parameter_unit_price(price_1, param_1, price_2, param_2, context=context)
 
 
-@mcp.tool()
-def rf_chain_index(price_start: float, price_end: float, periods: float) -> dict:
-    """Average chain price index h = (price_end / price_start) ** (1 / periods)."""
-    return rf.chain_index(price_start, price_end, periods)
+@tool
+def rf_new_equivalent_price(price: float, total_depreciation_pct: float, context: Optional[dict] = None) -> dict:
+    """Цена подержанного аналога как нового: Цус = Цан / (1 − Кизн) (Козлов, Фролов, формула 22)."""
+    return rf.new_equivalent_price(price, total_depreciation_pct, context=context)
 
 
-@mcp.tool()
-def rf_index_price(base_price: float, chain_index: float, periods: float) -> dict:
-    """Index a past price to the valuation date: base_price * chain_index ** periods."""
-    return rf.index_price(base_price, chain_index, periods)
+@tool
+def rf_chain_index(price_start: float, price_end: float, periods: float, context: Optional[dict] = None) -> dict:
+    """Средний цепной индекс цен h = (Цn / Ц0)^(1/n)."""
+    return rf.chain_index(price_start, price_end, periods, context=context)
 
 
-@mcp.tool()
+@tool
+def rf_index_price(base_price: float, chain_index: float, periods: float, context: Optional[dict] = None) -> dict:
+    """Индексный метод: цена на дату оценки = базовая цена × h^n."""
+    return rf.index_price(base_price, chain_index, periods, context=context)
+
+
+@tool
 def rf_physical_depreciation(
     age_years: float,
     economic_life_years: float,
@@ -284,12 +425,14 @@ def rf_physical_depreciation(
     salvage_value: float = 0,
     actual_load: float = 1,
     normative_load: float = 1,
+    context: Optional[dict] = None,
 ) -> dict:
-    """Physical depreciation of machinery under the linear model: curable part
-    annual_repair_cost * age / replacement_cost plus incurable part
-    (actual_load / normative_load) * age / (life * cost) *
-    (cost - salvage_value - annual_repair_cost * life). Without repair costs
-    and salvage value it is (load ratio) * age / life. Capped at 100%."""
+    """Физический износ машин по линейной модели (Козлов, Фролов, табл. 5, стр. 15).
+
+    Устранимый = Р × n / ПВС; неустранимый = (Кз факт / Кз норм) × n / (Nэж × ПВС) ×
+    (ПВС − Сут − Р × Nэж), где Р — годовые затраты на ремонты в текущих ценах. Без Р и
+    Сут — (Кз факт / Кз норм) × n / Nэж. Отрицательная база износа принимается 0,
+    итог ограничен 100% — оба случая отмечаются."""
     return rf.physical_depreciation(
         age_years,
         economic_life_years,
@@ -298,67 +441,74 @@ def rf_physical_depreciation(
         salvage_value,
         actual_load,
         normative_load,
+        context=context,
     )
 
 
-@mcp.tool()
+@tool
 def rf_scrap_value(
-    mass_kg: float, scrap_price_per_kg: float, disposal_cost: float = 0
+    mass_kg: float, scrap_price_per_kg: float, disposal_cost: float = 0, context: Optional[dict] = None
 ) -> dict:
-    """Salvage value by scrap metal: mass_kg * scrap_price_per_kg - disposal_cost."""
-    return rf.scrap_value(mass_kg, scrap_price_per_kg, disposal_cost)
+    """Стоимость утилизации: масса × цена лома − затраты на утилизацию."""
+    return rf.scrap_value(mass_kg, scrap_price_per_kg, disposal_cost, context=context)
 
 
-@mcp.tool()
+@tool
 def rf_residual_value(
-    replacement_cost: float, total_depreciation_pct: float, salvage_value: float = 0
+    replacement_cost: float,
+    total_depreciation_pct: float,
+    salvage_value: float = 0,
+    context: Optional[dict] = None,
 ) -> dict:
-    """Residual value: replacement_cost * (1 - depreciation) + salvage_value;
-    a negative salvage_value is a disposal cost."""
-    return rf.residual_value(replacement_cost, total_depreciation_pct, salvage_value)
+    """Остаточная стоимость машины (ФСО №10, п. 14): V = ПВС × (1 − СО) + стоимость утилизации.
+
+    Отрицательная стоимость утилизации — затраты на неё."""
+    return rf.residual_value(replacement_cost, total_depreciation_pct, salvage_value, context=context)
 
 
-@mcp.tool()
+@tool
 def rf_cost_from_price(
     price: float,
     profitability_pct: float,
     vat_pct: float = 0,
     profit_tax_pct: Optional[float] = None,
+    context: Optional[dict] = None,
 ) -> dict:
-    """Full production cost from the manufacturer's price:
-    (1 - profitability) * price / (1 + VAT). With profit_tax_pct the
-    profitability is net: (1 - tax - profitability) * price / ((1 + VAT) *
-    (1 - tax)). The VAT rate is an input."""
-    return rf.cost_from_price(price, profitability_pct, vat_pct, profit_tax_pct)
+    """Полная себестоимость из цены изготовителя: Сп = (1 − Кр) × Ц / (1 + НДС).
+
+    При profit_tax_pct рентабельность считается чистой: Сп = (1 − Нпр − Кчр) × Ц /
+    ((1 + НДС)(1 − Нпр)). Ставка НДС — входной параметр."""
+    return rf.cost_from_price(price, profitability_pct, vat_pct, profit_tax_pct, context=context)
 
 
-@mcp.tool()
+@tool
 def rf_price_from_cost(
     cost: float,
     profitability_pct: float,
     vat_pct: float = 0,
     profit_tax_pct: Optional[float] = None,
+    context: Optional[dict] = None,
 ) -> dict:
-    """Manufacturer's price from full production cost; the inverse of
-    rf_cost_from_price with the same parameters."""
-    return rf.price_from_cost(cost, profitability_pct, vat_pct, profit_tax_pct)
+    """Цена изготовителя из полной себестоимости — обратный расчёт к rf_cost_from_price."""
+    return rf.price_from_cost(cost, profitability_pct, vat_pct, profit_tax_pct, context=context)
 
 
-@mcp.tool()
-def rf_qualitative_adjustments(analogs: List[dict]) -> dict:
-    """Method of directed qualitative adjustments. Each analog has price and
-    adjustments: [{"name", "direction": "up" | "down", "weight"}] (weight 1
-    by default). Returns lower/upper analogs, the value of every pair
-    (Цн*N−в + Цв*N+н) / (N−в + N+н), the weighted value and the range value."""
-    return rf.qualitative_adjustments(analogs)
+@tool
+def rf_qualitative_adjustments(analogs: List[dict], context: Optional[dict] = None) -> dict:
+    """Метод направленных качественных корректировок (Козлов, Фролов, формулы 26–27).
+
+    Аналог: price и adjustments [{"name", "direction": "up" | "down", "weight"}] (вес 1
+    по умолчанию). Нижние и верхние аналоги, стоимость каждой пары
+    (Цн × N−в + Цв × N+н) / (N−в + N+н), средневзвешенный итог и итог по паре."""
+    return rf.qualitative_adjustments(analogs, context=context)
 
 
 # ---------------------------------------------------------------------------
-# Business valuation (FSO No. 8)
+# Бизнес (ФСО №8)
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@tool
 def rf_business_income_approach(
     cash_flows: List[float],
     discount_rate_pct: float,
@@ -369,13 +519,16 @@ def rf_business_income_approach(
     non_operating_assets: float = 0,
     non_operating_liabilities: float = 0,
     currency: str = "RUB",
+    terminal_timing: str = "end",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Equity value (100%) of a business from forecast cash flows (FSO No. 8).
+    """Доходный подход к бизнесу (ФСО №8, п. 9): 100% собственного капитала.
 
-    basis "equity": FCFE at the cost of equity (obligations_not_in_flows must
-    be 0). basis "invested_capital": FCFF at WACC give invested capital, then
-    obligations not reflected in the flows are subtracted. Non-operating
-    assets/liabilities are added/subtracted once. cash_flows[0] is year 1."""
+    basis equity: FCFE по ставке на собственный капитал (обязательства не вычитаются —
+    долг уже в потоке). basis invested_capital: FCFF по WACC → инвестированный капитал,
+    затем вычитаются только обязательства, не учтённые в потоке (не весь балансовый
+    долг). Неоперационные активы и обязательства учитываются один раз.
+    cash_flows[0] — первый год. terminal_timing: end | mid."""
     return rf.business_income_approach(
         cash_flows,
         discount_rate_pct,
@@ -386,10 +539,12 @@ def rf_business_income_approach(
         non_operating_assets,
         non_operating_liabilities,
         currency,
+        terminal_timing,
+        context=context,
     )
 
 
-@mcp.tool()
+@tool
 def rf_business_multiples(
     analogs: List[dict],
     subject_metric: float,
@@ -397,89 +552,95 @@ def rf_business_multiples(
     basis: str,
     statistic: str = "median",
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Value of 100% of a capital base by a market multiple (FSO No. 8).
+    """Сравнительный подход к бизнесу (ФСО №8, пп. 10, 10.2): 100% базы мультипликатора.
 
-    Each analog: value (equity or invested capital matching basis), metric,
-    optional name and provenance (source, date, price_type...). The median or
-    mean multiple is applied to subject_metric; a basis/multiple mismatch
-    (EV/... with equity, P/... with invested capital) is flagged."""
-    return rf.business_multiples(analogs, subject_metric, multiple_name, basis, statistic, currency)
+    basis — числитель мультипликатора, задаётся явно: equity (P/E, P/BV…) |
+    invested_capital (EV/EBITDA, EV/S…). Аналог: value, metric, name, происхождение.
+    Медиана или среднее мультипликаторов × показатель объекта."""
+    return rf.business_multiples(analogs, subject_metric, multiple_name, basis, statistic, currency, context=context)
 
 
-@mcp.tool()
+@tool
 def rf_net_assets(
     assets: List[dict],
     liabilities: List[dict],
     adjustments: Optional[List[dict]] = None,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Equity by the net asset method (FSO No. 8): assets and liabilities as
-    {"name", "value", "basis": "market" | "book"}; book values are flagged.
-    adjustments: {"name", "value"} with a sign, each to be justified."""
-    return rf.net_assets(assets, liabilities, adjustments, currency)
+    """Метод чистых активов (ФСО №8, п. 11).
+
+    Активы и обязательства: {"name", "value", "basis": "market" | "book"} — балансовые
+    отмечаются. adjustments: {"name", "value"} со знаком, каждую обосновать."""
+    return rf.net_assets(assets, liabilities, adjustments, currency, context=context)
 
 
-@mcp.tool()
-def rf_liquidation_value(
-    events: List[dict], discount_rate_pct: float, currency: str = "RUB"
+@tool
+def rf_business_liquidation_value(
+    events: List[dict], discount_rate_pct: float, currency: str = "RUB", context: Optional[dict] = None
 ) -> dict:
-    """Business value under a justified liquidation premise (FSO No. 8 p. 11.2).
+    """Бизнес при обоснованной предпосылке ликвидации (ФСО №8, п. 11.2; МРз–1/23).
 
-    events: {"period" (years from valuation date), "sale_proceeds",
-    "debt_payments", "disposal_costs", "closure_costs"}; net proceeds are
-    discounted at the rate for the risk of receiving liquidation proceeds."""
-    return rf.liquidation_value(events, discount_rate_pct, currency)
+    events: {"period" (лет от даты оценки), "sale_proceeds", "debt_payments",
+    "disposal_costs", "closure_costs"}; чистые поступления дисконтируются по ставке
+    риска их получения. Для отдельного объекта — rf_asset_liquidation_value."""
+    return rf.business_liquidation_value(events, discount_rate_pct, currency, context=context)
 
 
-@mcp.tool()
+@tool
 def rf_actual_share_value(
     share_pct: float,
     accepted_assets: float,
     accepted_liabilities: float,
     paid_share_pct: float = 100,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Actual value of an LLC participant's share (ДСД) on exit:
-    share × paid part × (accepted assets − accepted liabilities). A legal
-    value, not the market value of the share; no discounts or premiums."""
+    """Действительная стоимость доли участника ООО при выходе (14-ФЗ: п. 2 ст. 14, п. 6.1 ст. 23, ст. 26).
+
+    ДСД = доля × оплаченная часть × (принятые активы − принятые обязательства).
+    Правовая величина, не рыночная стоимость доли; скидки и премии не применяются."""
     return rf.actual_share_value(
-        share_pct, accepted_assets, accepted_liabilities, paid_share_pct, currency
+        share_pct, accepted_assets, accepted_liabilities, paid_share_pct, currency, context=context
     )
 
 
-@mcp.tool()
+@tool
 def rf_deferred_tax_effect(
     tax_without_effect: List[float],
     tax_with_effect: List[float],
     discount_rate_pct: float,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Present value of the change in tax payments from deferred tax assets /
-    liabilities (years 1..n). Use the effect once: in the forecast or as a
-    separate adjustment."""
-    return rf.deferred_tax_effect(tax_without_effect, tax_with_effect, discount_rate_pct, currency)
+    """Приведённый эффект отложенных налогов ОНА/ОНО (МР–2/22) по годам 1..n.
+
+    Учитывайте эффект один раз: в прогнозе потоков или отдельной корректировкой."""
+    return rf.deferred_tax_effect(tax_without_effect, tax_with_effect, discount_rate_pct, currency, context=context)
 
 
-@mcp.tool()
+@tool
 def rf_business_interest_value(
     value_100pct: float,
     share_pct: float,
     adjustments: Optional[List[dict]] = None,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Value of a specific interest: 100% value × share, then optional step
-    adjustments {"name", "type": "pct" | "abs", "value"} (control or
-    liquidity discounts), each to be justified; none applied automatically."""
-    return rf.business_interest_value(value_100pct, share_pct, adjustments, currency)
+    """Стоимость конкретной доли: 100% × доля, затем скидки и премии по шагам (pct | abs).
+
+    Ни одна скидка не применяется автоматически; каждую обосновать."""
+    return rf.business_interest_value(value_100pct, share_pct, adjustments, currency, context=context)
 
 
 # ---------------------------------------------------------------------------
-# Special methods from the Expert Council recommendations
+# Частные рекомендации «СРОО Экспертный совет»
 # ---------------------------------------------------------------------------
 
 
-@mcp.tool()
+@tool
 def rf_market_rent_cost_plus(
     property_value: float,
     cap_rate_pct: float,
@@ -488,12 +649,13 @@ def rf_market_rent_cost_plus(
     collection_loss_pct: float = 0,
     rentable_area_sqm: Optional[float] = None,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Market rent by the cost-plus model (МРз–1/26): required NOI = property
-    value × cap rate, plus owner expenses ({"name", "type": "abs" RUB/year |
-    "pct" % of effective gross income, "value"}) and losses -> gross rent per
-    year, month and m². Check comparable rents first; market rent is not the
-    value of the property or of the leasehold."""
+    """Рыночная арендная плата методом компенсации затрат (МРз–1/26).
+
+    Требуемый ЧОД = стоимость × ставка капитализации; плюс расходы собственника
+    {"name", "type": "abs" руб./год | "pct" % ДВД, "value"} и потери → валовая аренда
+    в год, месяц и за м². Сначала проверьте сравнительный подход."""
     return rf.market_rent_cost_plus(
         property_value,
         cap_rate_pct,
@@ -502,10 +664,11 @@ def rf_market_rent_cost_plus(
         collection_loss_pct,
         rentable_area_sqm,
         currency,
+        context=context,
     )
 
 
-@mcp.tool()
+@tool
 def rf_cellular_site_rent(
     comparable_asset_value: float,
     kit_share_pct: float,
@@ -513,60 +676,71 @@ def rf_cellular_site_rent(
     owner_costs_annual: float = 0,
     collection_loss_pct: float = 0,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Rent of a site for one standard cellular equipment kit (МР–3/26 (2)) by
-    reverse capitalization: comparable-utility asset value × kit share × cap
-    rate, plus owner costs and collection losses. Only when comparable rent
-    data are missing or doubtful."""
+    """Аренда места под стандартный комплект оборудования сотовой связи (МР–3/26 (2), § 9.4).
+
+    Обратная капитализация: стоимость объекта сопоставимой полезности × доля комплекта
+    × ставка, плюс расходы собственника и недосбор. Только если данных сравнения нет."""
     return rf.cellular_site_rent(
-        comparable_asset_value, kit_share_pct, cap_rate_pct, owner_costs_annual, collection_loss_pct, currency
+        comparable_asset_value,
+        kit_share_pct,
+        cap_rate_pct,
+        owner_costs_annual,
+        collection_loss_pct,
+        currency,
+        context=context,
     )
 
 
-@mcp.tool()
+@tool
 def rf_external_obsolescence_cost_income(
     cost_value_without_external: float,
     income_value_with_external: float,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """External obsolescence (МРз–8/23-2 §4.1): cost value without the external
-    factor minus income value with it, in RUB and percent. A negative result
-    is reported, not forced to a discount."""
+    """Внешнее обесценение (МРз–8/23-2, § 4.1): затратная стоимость без фактора − доходная с ним.
+
+    Обе стоимости должны отличаться только внешним фактором — иначе двойной учёт износа.
+    Отрицательный результат показывается, а не превращается в скидку."""
     return rf.external_obsolescence_cost_income(
-        cost_value_without_external, income_value_with_external, currency
+        cost_value_without_external, income_value_with_external, currency, context=context
     )
 
 
-@mcp.tool()
+@tool
 def rf_external_obsolescence_paired_sales(
     value_without_impact: float,
     value_with_impact: float,
     base_value: float,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """External obsolescence (МРз–8/23-2 §4.2) from a pair of sales differing
-    only in the external factor: ratio = 1 − with/without, applied to base_value."""
+    """Внешнее обесценение по паре продаж (МРз–8/23-2, § 4.2): доля = 1 − с фактором / без фактора, × база."""
     return rf.external_obsolescence_paired_sales(
-        value_without_impact, value_with_impact, base_value, currency
+        value_without_impact, value_with_impact, base_value, currency, context=context
     )
 
 
-@mcp.tool()
+@tool
 def rf_external_obsolescence_lost_income(
     cash_flows_without: List[float],
     cash_flows_with: List[float],
     discount_rate_pct: float,
     cost_value: Optional[float] = None,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """External obsolescence (МРз–8/23-2 §4.3) as the present value of lost
-    cash flows (years 1..n); with cost_value also as a percent."""
+    """Внешнее обесценение по приведённым потерям дохода (МРз–8/23-2, § 4.3), годы 1..n.
+
+    При cost_value — также в процентах от затратной стоимости."""
     return rf.external_obsolescence_lost_income(
-        cash_flows_without, cash_flows_with, discount_rate_pct, cost_value, currency
+        cash_flows_without, cash_flows_with, discount_rate_pct, cost_value, currency, context=context
     )
 
 
-@mcp.tool()
+@tool
 def rf_fund_unit_value(
     distributions: List[float],
     final_compensation: float,
@@ -574,12 +748,14 @@ def rf_fund_unit_value(
     termination_costs: float = 0,
     final_period: Optional[float] = None,
     currency: str = "RUB",
+    context: Optional[dict] = None,
 ) -> dict:
-    """Income value of a closed-end fund unit (МРз–5/23): PV of net payouts
-    per unit (years 1..n) plus PV of the final compensation minus termination
-    costs at final_period (default n). No separate terminal value."""
+    """Доходная модель инвестиционного пая ПИФ (МРз–5/23).
+
+    Приведённые чистые выплаты на пай (годы 1..n) плюс приведённая финальная
+    компенсация за вычетом расходов прекращения; отдельной терминальной стоимости нет."""
     return rf.fund_unit_value(
-        distributions, final_compensation, discount_rate_pct, termination_costs, final_period, currency
+        distributions, final_compensation, discount_rate_pct, termination_costs, final_period, currency, context=context
     )
 
 

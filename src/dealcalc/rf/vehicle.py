@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
-from ._adjustments import adjustment_steps, apply_adjustments, json_value, money, variation
+from ._adjustments import (
+    WEIGHTING_FORMULAS,
+    adjustment_steps,
+    analog_weight,
+    apply_adjustments,
+    json_value,
+    money,
+    variation,
+    weight_shares,
+)
 from ._meta import (
     FORMULA_TECHNICAL,
     method_card,
@@ -32,8 +42,91 @@ def _number(name: str, value: Any, *, allow_none: bool = False) -> Optional[floa
     return number
 
 
-def _text(value: Any) -> str:
-    return "" if value is None else str(value).strip().casefold()
+_TRANSLIT = str.maketrans({
+    "а": "a", "б": "b", "в": "v", "г": "g", "д": "d", "е": "e", "ё": "e", "ж": "zh",
+    "з": "z", "и": "i", "й": "y", "к": "k", "л": "l", "м": "m", "н": "n", "о": "o",
+    "п": "p", "р": "r", "с": "s", "т": "t", "у": "u", "ф": "f", "х": "h", "ц": "ts",
+    "ч": "ch", "ш": "sh", "щ": "sch", "ъ": "", "ы": "y", "ь": "", "э": "e", "ю": "yu",
+    "я": "ya",
+})
+
+# Common spellings of brands on the Russian market; extend with ``synonyms``.
+BRAND_SYNONYMS = {
+    "lada": ["ваз", "vaz", "лада", "lada"],
+    "uaz": ["уаз", "uaz"],
+    "gaz": ["газ", "gaz"],
+    "moskvich": ["москвич", "moskvich"],
+    "haval": ["хавал", "хавейл", "haval"],
+    "chery": ["чери", "chery"],
+    "geely": ["джили", "geely"],
+    "changan": ["чанган", "changan"],
+    "exeed": ["эксид", "exeed"],
+    "omoda": ["омода", "omoda"],
+    "jetour": ["джетур", "jetour"],
+    "tank": ["танк", "tank"],
+    "kia": ["киа", "kia"],
+    "hyundai": ["хендай", "хёндэ", "хундай", "hyundai"],
+    "toyota": ["тойота", "toyota"],
+    "volkswagen": ["фольксваген", "volkswagen", "vw"],
+    "skoda": ["шкода", "skoda", "škoda"],
+    "renault": ["рено", "renault"],
+    "nissan": ["ниссан", "nissan"],
+    "mitsubishi": ["мицубиси", "митсубиси", "mitsubishi"],
+    "bmw": ["бмв", "bmw"],
+    "mercedes-benz": ["мерседес", "мерседес-бенц", "mercedes", "mercedes-benz"],
+    "chevrolet": ["шевроле", "chevrolet"],
+    "ford": ["форд", "ford"],
+    "mazda": ["мазда", "mazda"],
+}
+
+
+def _tokens(value: Any) -> List[str]:
+    text = "" if value is None else str(value).casefold().replace("ё", "е")
+    return [token for token in re.split(r"[^0-9a-zа-я-]+", text) if token]
+
+
+def _latin(token: str) -> str:
+    return token.translate(_TRANSLIT)
+
+
+def _synonym_index(extra: Optional[Mapping[str, Sequence[str]]]) -> Dict[str, str]:
+    groups = {key: list(values) for key, values in BRAND_SYNONYMS.items()}
+    for key, values in (extra or {}).items():
+        groups.setdefault(str(key).casefold(), []).extend(values)
+        groups[str(key).casefold()].append(str(key))
+    index = {}
+    for key, values in groups.items():
+        for value in values:
+            for token in _tokens(value) or [str(value).casefold()]:
+                index[token] = key
+                index[_latin(token)] = key
+            index[str(value).casefold()] = key
+    return index
+
+
+def _brand_keys(value: Any, index: Mapping[str, str]) -> set:
+    """All canonical keys a brand string may denote: "ВАЗ (Lada)" -> {"lada"}."""
+
+    text = "" if value is None else str(value).casefold().replace("ё", "е").strip()
+    if not text:
+        return set()
+    keys = {index[text]} if text in index else set()
+    for token in _tokens(text):
+        keys.add(index.get(token) or index.get(_latin(token)) or _latin(token))
+    return keys
+
+
+def _model_tokens(value: Any, index: Mapping[str, str]) -> List[str]:
+    """Model tokens in Latin; appraiser-supplied synonyms map spellings that
+    letter-by-letter transliteration cannot (Солярис -> solaris)."""
+
+    return [index.get(token) or index.get(_latin(token)) or _latin(token) for token in _tokens(value)]
+
+
+def _models_match(subject: List[str], comparable: List[str], mode: str) -> bool:
+    if mode == "exact":
+        return subject == comparable
+    return bool(subject) and set(subject) <= set(comparable)
 
 
 def _weighted_median(items: Sequence[tuple[float, float]]) -> float:
@@ -50,9 +143,10 @@ def _weighted_median(items: Sequence[tuple[float, float]]) -> float:
 
 @method_card(
     "VEHICLE_COMPARATIVE",
-    "ФСО V; ФСО №10",
+    "ФСО V; ФСО №10, п. 13",
     "P_adj = P_0 с последовательными поправками; V = взвешенная медиана P_adj",
     FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-10/",
 )
 def vehicle_comparative_approach(
     subject: Mapping[str, Any],
@@ -60,6 +154,9 @@ def vehicle_comparative_approach(
     currency: str = "RUB",
     max_year_diff: Optional[float] = None,
     max_mileage_diff: Optional[float] = None,
+    weighting: str = "manual",
+    match: str = "exact",
+    synonyms: Optional[Mapping[str, Sequence[str]]] = None,
 ) -> Dict[str, Any]:
     """Estimate a vehicle from matched, adjusted comparable listings.
 
@@ -94,8 +191,13 @@ def vehicle_comparative_approach(
     subject_mileage = _number(
         "subject.mileage_km", subject.get("mileage_km"), allow_none=True
     )
-    subject_brand = _text(subject.get("brand"))
-    subject_model = _text(subject.get("model"))
+    if match not in ("exact", "contains"):
+        raise ValueError("match must be 'exact' or 'contains'")
+    if synonyms is not None and not isinstance(synonyms, Mapping):
+        raise ValueError("synonyms must be an object: {canonical name: [spellings]}")
+    synonym_index = _synonym_index(synonyms)
+    subject_brand = _brand_keys(subject.get("brand"), synonym_index)
+    subject_model = _model_tokens(subject.get("model"), synonym_index)
 
     if max_year_diff is not None and max_year_diff < 0:
         raise ValueError("max_year_diff must be non-negative or None")
@@ -111,12 +213,12 @@ def vehicle_comparative_approach(
         price = _number(f"comparables[{index - 1}].price_rub", comparable.get("price_rub"))
         if price <= 0:
             raise ValueError(f"comparables[{index - 1}].price_rub must be greater than 0")
-        comp_brand = _text(comparable.get("brand"))
-        comp_model = _text(comparable.get("model"))
-        if subject_brand and subject_brand != comp_brand:
+        comp_brand = _brand_keys(comparable.get("brand"), synonym_index)
+        comp_model = _model_tokens(comparable.get("model"), synonym_index)
+        if subject_brand and not subject_brand & comp_brand:
             rejected += 1
             continue
-        if subject_model and subject_model != comp_model:
+        if subject_model and not _models_match(subject_model, comp_model, match):
             rejected += 1
             continue
 
@@ -145,15 +247,10 @@ def vehicle_comparative_approach(
             rejected += 1
             continue
 
-        weight = _number(
-            f"comparables[{index - 1}].weight", comparable.get("weight", 1)
-        )
-        if weight <= 0:
-            raise ValueError(f"comparables[{index - 1}].weight must be greater than 0")
-
         prefix = f"comparables[{index - 1}]"
         adjusted = apply_adjustments(price, adjustment_steps(comparable, prefix), prefix)
         adjusted_price = adjusted["adjusted_price"]
+        weight = analog_weight(comparable, adjusted, weighting, prefix)
         weighted_items.append((adjusted_price, weight))
         item: Dict[str, Any] = {
             "index": index,
@@ -162,7 +259,7 @@ def vehicle_comparative_approach(
             "net_adjustment_pct": adjusted["net_adjustment_pct"],
             "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
             "adjusted_price_rub": money(adjusted_price),
-            "weight": weight,
+            "weight": round(weight, 6),
         }
         for field in ("listing_id", "brand", "model", "year", "mileage_km", "collected_at"):
             if field in comparable and comparable[field] not in (None, ""):
@@ -172,6 +269,8 @@ def vehicle_comparative_approach(
 
     if not matched:
         raise ValueError("no comparable vehicles matched the subject filters")
+    for item, share in zip(matched, weight_shares([weight for _, weight in weighted_items])):
+        item["weight_share"] = share
 
     weight_sum = sum(weight for _, weight in weighted_items)
     weighted_mean = sum(value * weight for value, weight in weighted_items) / weight_sum
@@ -191,6 +290,8 @@ def vehicle_comparative_approach(
         "subject_price_rub": None if subject_price is None else money(subject_price),
         "sample_size": len(matched),
         "rejected_count": rejected,
+        "weighting": weighting,
+        "weighting_formula": WEIGHTING_FORMULAS[weighting],
         "weighted_median_price": money(_weighted_median(weighted_items)),
         "weighted_mean_price": money(weighted_mean),
         "indicated_value": money(_weighted_median(weighted_items)),
@@ -200,6 +301,7 @@ def vehicle_comparative_approach(
         },
         "variation": price_variation,
         "selection": {
+            "match": match,
             "max_year_diff": max_year_diff,
             "max_mileage_diff": max_mileage_diff,
             "automatic_adjustments": False,
