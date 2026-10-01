@@ -1,0 +1,177 @@
+"""Comparable-vehicle valuation helpers for Russian marketplace data."""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Mapping, Sequence
+from typing import Any, Dict, List, Optional
+
+
+def _number(name: str, value: Any, *, allow_none: bool = False) -> Optional[float]:
+    if value is None or value == "":
+        if allow_none:
+            return None
+        raise ValueError(f"{name} is required")
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be a number")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a number") from exc
+    if not math.isfinite(number):
+        raise ValueError(f"{name} must be finite")
+    return number
+
+
+def _text(value: Any) -> str:
+    return "" if value is None else str(value).strip().casefold()
+
+
+def _weighted_median(items: Sequence[tuple[float, float]]) -> float:
+    ordered = sorted(items, key=lambda item: item[0])
+    total_weight = sum(weight for _, weight in ordered)
+    threshold = total_weight / 2
+    cumulative = 0.0
+    for value, weight in ordered:
+        cumulative += weight
+        if cumulative >= threshold:
+            return value
+    return ordered[-1][0]
+
+
+def vehicle_comparative_approach(
+    subject: Mapping[str, Any],
+    comparables: Sequence[Mapping[str, Any]],
+    currency: str = "RUB",
+    max_year_diff: Optional[float] = 3,
+    max_mileage_diff: Optional[float] = 100_000,
+) -> Dict[str, Any]:
+    """Estimate a vehicle from matched, adjusted comparable listings.
+
+    The subject and each comparable should use the normalized fields from
+    :func:`dealcalc.rf.data.normalize_listing`. Comparables are matched by
+    brand/model when those fields are present, and optionally limited by year
+    and mileage differences. ``adjustment_pct`` and ``weight`` are optional
+    analyst-supplied fields on each comparable. No automatic depreciation
+    coefficient is imposed.
+    """
+
+    if not isinstance(subject, Mapping):
+        raise ValueError("subject must be an object")
+    if not comparables:
+        raise ValueError("comparables must contain at least one item")
+    if not isinstance(currency, str) or not currency.strip():
+        raise ValueError("currency must be a non-empty string")
+    currency_code = currency.strip().upper()
+
+    subject_price = _number("subject.price_rub", subject.get("price_rub"), allow_none=True)
+    subject_year = _number("subject.year", subject.get("year"), allow_none=True)
+    subject_mileage = _number(
+        "subject.mileage_km", subject.get("mileage_km"), allow_none=True
+    )
+    subject_brand = _text(subject.get("brand"))
+    subject_model = _text(subject.get("model"))
+
+    if max_year_diff is not None and max_year_diff < 0:
+        raise ValueError("max_year_diff must be non-negative or None")
+    if max_mileage_diff is not None and max_mileage_diff < 0:
+        raise ValueError("max_mileage_diff must be non-negative or None")
+
+    matched: List[Dict[str, Any]] = []
+    weighted_items = []
+    rejected = 0
+    for index, comparable in enumerate(comparables, start=1):
+        if not isinstance(comparable, Mapping):
+            raise ValueError(f"comparables[{index - 1}] must be an object")
+        price = _number(f"comparables[{index - 1}].price_rub", comparable.get("price_rub"))
+        if price < 0:
+            raise ValueError(f"comparables[{index - 1}].price_rub must be non-negative")
+        comp_brand = _text(comparable.get("brand"))
+        comp_model = _text(comparable.get("model"))
+        if subject_brand and subject_brand != comp_brand:
+            rejected += 1
+            continue
+        if subject_model and subject_model != comp_model:
+            rejected += 1
+            continue
+
+        comp_year = _number(
+            f"comparables[{index - 1}].year", comparable.get("year"), allow_none=True
+        )
+        comp_mileage = _number(
+            f"comparables[{index - 1}].mileage_km",
+            comparable.get("mileage_km"),
+            allow_none=True,
+        )
+        if (
+            max_year_diff is not None
+            and subject_year is not None
+            and comp_year is not None
+            and abs(subject_year - comp_year) > max_year_diff
+        ):
+            rejected += 1
+            continue
+        if (
+            max_mileage_diff is not None
+            and subject_mileage is not None
+            and comp_mileage is not None
+            and abs(subject_mileage - comp_mileage) > max_mileage_diff
+        ):
+            rejected += 1
+            continue
+
+        adjustment_pct = _number(
+            f"comparables[{index - 1}].adjustment_pct",
+            comparable.get("adjustment_pct", 0),
+        )
+        if adjustment_pct <= -100:
+            raise ValueError(
+                f"comparables[{index - 1}].adjustment_pct must be greater than -100"
+            )
+        weight = _number(
+            f"comparables[{index - 1}].weight", comparable.get("weight", 1)
+        )
+        if weight <= 0:
+            raise ValueError(f"comparables[{index - 1}].weight must be greater than 0")
+
+        adjusted_price = price * (1 + adjustment_pct / 100)
+        weighted_items.append((adjusted_price, weight))
+        item: Dict[str, Any] = {
+            "index": index,
+            "price_rub": round(price, 2),
+            "adjustment_pct": round(adjustment_pct, 2),
+            "adjusted_price_rub": round(adjusted_price, 2),
+            "weight": weight,
+        }
+        for field in ("listing_id", "source", "url", "brand", "model", "year", "mileage_km"):
+            if field in comparable and comparable[field] not in (None, ""):
+                item[field] = comparable[field]
+        matched.append(item)
+
+    if not matched:
+        raise ValueError("no comparable vehicles matched the subject filters")
+
+    weight_sum = sum(weight for _, weight in weighted_items)
+    weighted_mean = sum(value * weight for value, weight in weighted_items) / weight_sum
+    adjusted_prices = [item["adjusted_price_rub"] for item in matched]
+    return {
+        "approach": "comparative",
+        "asset_type": "vehicle",
+        "currency": currency_code,
+        "subject_price_rub": None if subject_price is None else round(subject_price, 2),
+        "sample_size": len(matched),
+        "rejected_count": rejected,
+        "weighted_median_price": round(_weighted_median(weighted_items), 2),
+        "weighted_mean_price": round(weighted_mean, 2),
+        "indicated_value": round(_weighted_median(weighted_items), 2),
+        "indicated_value_range": {
+            "low": round(min(adjusted_prices), 2),
+            "high": round(max(adjusted_prices), 2),
+        },
+        "selection": {
+            "max_year_diff": max_year_diff,
+            "max_mileage_diff": max_mileage_diff,
+            "automatic_adjustments": False,
+        },
+        "comparables": matched,
+    }
