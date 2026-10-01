@@ -523,6 +523,8 @@ def dcf_valuation(
     if first_cash_flow_period == 0 and mid_year:
         raise ValueError("mid_year discounting needs first_cash_flow_period=1")
     terminal_period = _terminal_period(len(flows) + first_cash_flow_period - 1, terminal_timing)
+    if terminal and terminal_period <= 0:
+        raise ValueError("terminal value must be discounted from a future period: add forecast periods")
 
     shift = 0.5 if mid_year else 0
     present_values = [

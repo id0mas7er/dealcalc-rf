@@ -360,9 +360,12 @@ def capital_recovery_rate(
             "землёй или растущей стоимостью задайте value_change_pct."
         )
     else:
-        change = _rate("value_change_pct", value_change_pct)
-        if change > 100:
-            raise ValueError("value_change_pct must not exceed 100")
+        # Growth may exceed 100 %, so no lower bound; a loss cannot exceed 100 %.
+        if isinstance(value_change_pct, bool) or not isinstance(value_change_pct, (int, float)):
+            raise ValueError("value_change_pct must be a number")
+        change = float(value_change_pct)
+        if not math.isfinite(change) or change > 100:
+            raise ValueError("value_change_pct must be a finite number not above 100")
     recovery *= change / 100
     return {
         "method": method,

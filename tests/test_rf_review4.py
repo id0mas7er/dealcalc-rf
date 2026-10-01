@@ -28,3 +28,48 @@ def test_import_warnings_reach_vehicle_checks():
     result = vehicle_comparative_approach({"brand": "Lada"}, [listing])
 
     assert any("Аренда" in check for check in result["checks"])
+
+
+# Codex review of 0.3.1–0.3.2.
+
+
+def test_reimport_keeps_import_warnings_and_unknown_price_type():
+    from dealcalc.rf import comparative_approach as approach
+
+    first = normalize_listing({"price": 1_000, "area_sqm": 10, "price_type": "sale"}, source="avito")
+    again = normalize_listing(first, source="avito")
+
+    assert again["price_type"] == ""
+    assert again["import_warnings"] == first["import_warnings"]
+    result = approach(10, [{**again, "price": again["price_rub"]}])
+    assert any("sale" in check for check in result["checks"])
+
+
+def test_value_growth_of_100_pct_or_more_is_allowed():
+    from dealcalc.rf import capital_recovery_rate
+
+    result = capital_recovery_rate(20, 10, "ring", value_change_pct=-100)
+
+    assert result["capitalization_rate_pct"] == 10
+
+
+def test_dcf_rejects_terminal_value_not_in_the_future():
+    import pytest
+
+    from dealcalc.rf import dcf_valuation
+
+    with pytest.raises(ValueError, match="terminal"):
+        dcf_valuation([0], 10, terminal_value=100, first_cash_flow_period=0, terminal_timing="mid")
+
+
+def test_qualitative_adjustments_returns_value_with_context_reminder():
+    from dealcalc.rf import qualitative_adjustments
+
+    result = qualitative_adjustments(
+        [
+            {"price": 100, "adjustments": [{"name": "Состояние", "direction": "up"}]},
+            {"price": 120, "adjustments": [{"name": "Пробег", "direction": "down"}]},
+        ]
+    )
+
+    assert any("context" in note for note in result["guardrails"])

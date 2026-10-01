@@ -438,7 +438,6 @@ def price_from_cost(
     "С = (Цн·N−в + Цв·N+н) / (N−в + N+н)",
     FORMULA_METHODICAL,
     source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
-    context_reminder=False,
 )
 def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     """Method of directed qualitative adjustments (formulas 26 and 27).

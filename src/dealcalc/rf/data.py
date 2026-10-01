@@ -216,9 +216,19 @@ def normalize_listing(
         number = parse_number(_lookup(row, field), field)
         if number is not None:
             values[field] = number
-    values["price_type"], price_type_warning = _price_type(_lookup(row, "price_type"))
+    # A row normalized earlier keeps its warnings; an unknown price type
+    # marked then stays empty instead of becoming an offer.
+    previous = row.get("import_warnings")
+    warnings = [str(item) for item in previous] if isinstance(previous, list) else []
+    raw_price_type = _lookup(row, "price_type")
+    if warnings and not _text(raw_price_type):
+        values["price_type"], price_type_warning = "", None
+    else:
+        values["price_type"], price_type_warning = _price_type(raw_price_type)
     if price_type_warning:
-        values["import_warnings"] = [price_type_warning]
+        warnings.append(price_type_warning)
+    if warnings:
+        values["import_warnings"] = warnings
     adjustments = _parse_adjustments(_lookup(row, "adjustments"))
     if adjustments is not None:
         values["adjustments"] = adjustments
