@@ -95,6 +95,36 @@ def rf_cap_rate_extraction(comparables: List[dict]) -> dict:
 
 
 @mcp.tool()
+def rf_gross_rent_multiplier(
+    comparables: List[dict],
+    subject_gross_income: Optional[float] = None,
+    statistic: str = "mean",
+    currency: str = "RUB",
+) -> dict:
+    """Value by the gross rent multiplier (price / annual gross income).
+
+    Each comparable contains price and gross_income, with optional source and
+    date. Use the same income basis (potential or effective gross income) for
+    comparables and subject. With subject_gross_income the indicated value is
+    the "mean" or "median" multiplier times that income."""
+    return rf.gross_rent_multiplier(comparables, subject_gross_income, statistic, currency)
+
+
+@mcp.tool()
+def rf_npv(cash_flows: List[float], discount_rate_pct: float) -> dict:
+    """Net present value; cash_flows[0] is period 0 (usually the investment).
+    Returns the discount factor and present value of every period."""
+    return rf.npv(cash_flows, discount_rate_pct)
+
+
+@mcp.tool()
+def rf_irr(cash_flows: List[float]) -> dict:
+    """Internal rate of return in percent; cash_flows[0] is period 0 and the
+    flows must contain both negative and positive values."""
+    return rf.irr(cash_flows)
+
+
+@mcp.tool()
 def rf_dcf_valuation(
     cash_flows: List[float],
     discount_rate_pct: float,

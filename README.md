@@ -70,8 +70,8 @@ result = vehicle_comparative_approach(
 
 Из `dealcalc.rf` доступны `comparative_approach`, `net_operating_income`
 (ПВД → ДВД → ЧОД), `cap_rate_extraction` (ставка капитализации по аналогам),
-`income_capitalization`, `dcf_valuation`, `cost_approach` и
-`reconcile_approaches`.
+`gross_rent_multiplier` (ВРМ), `income_capitalization`, `dcf_valuation`,
+`npv`, `irr`, `cost_approach` и `reconcile_approaches`.
 Денежные суммы российского профиля задаются в рублях, площадь — в м²,
 ставки и корректировки — в процентах: `5` означает 5%.
 Импорт недвижимости выдаёт поле `price_rub`; перед передачей в

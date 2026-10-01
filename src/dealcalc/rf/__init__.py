@@ -10,11 +10,13 @@ from .real_estate import (
     comparative_approach,
     cost_approach,
     dcf_valuation,
+    gross_rent_multiplier,
     income_capitalization,
     net_operating_income,
     reconcile_approaches,
 )
 from .data import deduplicate_listings, load_listings, normalize_listing
+from .investment import irr, npv
 from .machinery import braking_coefficient, new_equivalent_price
 from .vehicle import vehicle_comparative_approach
 
@@ -25,6 +27,9 @@ __all__ = [
     "income_capitalization",
     "net_operating_income",
     "cap_rate_extraction",
+    "gross_rent_multiplier",
+    "npv",
+    "irr",
     "reconcile_approaches",
     "deduplicate_listings",
     "load_listings",

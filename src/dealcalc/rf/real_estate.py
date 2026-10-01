@@ -340,6 +340,75 @@ def cap_rate_extraction(
     }
 
 
+def gross_rent_multiplier(
+    comparables: Sequence[Mapping[str, Any]],
+    subject_gross_income: Optional[float] = None,
+    statistic: str = "mean",
+    currency: str = "RUB",
+) -> Dict[str, Any]:
+    """Value by the gross rent multiplier (ВРМ) of comparable sales.
+
+    Each comparable contains ``price`` and annual ``gross_income``, with
+    optional ``source`` and ``date``; ``multiplier = price / gross_income``.
+    Use the same income basis (ПВД or ДВД) for the comparables and the
+    subject. With ``subject_gross_income`` the indicated value is the
+    ``mean`` or ``median`` multiplier times that income.
+    """
+
+    if not comparables:
+        raise ValueError("comparables must contain at least one item")
+    if statistic not in ("mean", "median"):
+        raise ValueError("statistic must be 'mean' or 'median'")
+    subject_income = (
+        None
+        if subject_gross_income is None
+        else _non_negative("subject_gross_income", subject_gross_income)
+    )
+
+    items = []
+    multipliers = []
+    for index, comparable in enumerate(comparables):
+        prefix = f"comparables[{index}]"
+        if not isinstance(comparable, Mapping):
+            raise ValueError(f"{prefix} must be an object")
+        price = _finite_number(f"{prefix}.price", comparable.get("price"))
+        if price <= 0:
+            raise ValueError(f"{prefix}.price must be greater than 0")
+        income = _finite_number(f"{prefix}.gross_income", comparable.get("gross_income"))
+        if income <= 0:
+            raise ValueError(f"{prefix}.gross_income must be greater than 0")
+        multipliers.append(price / income)
+        item: Dict[str, Any] = {
+            "index": index + 1,
+            "price": _round(price),
+            "gross_income": _round(income),
+            "multiplier": _round(price / income),
+        }
+        for key in ("source", "date"):
+            if key in comparable:
+                item[key] = json_value(comparable[key])
+        items.append(item)
+
+    mean = statistics.mean(multipliers)
+    median = statistics.median(multipliers)
+    chosen = _round(mean if statistic == "mean" else median)
+    return {
+        "approach": "income",
+        "method": "gross_rent_multiplier",
+        "currency": _currency(currency),
+        "sample_size": len(items),
+        "mean_multiplier": _round(mean),
+        "median_multiplier": _round(median),
+        "min_multiplier": _round(min(multipliers)),
+        "max_multiplier": _round(max(multipliers)),
+        "variation": variation(multipliers),
+        "statistic": statistic,
+        "subject_gross_income": None if subject_income is None else _round(subject_income),
+        "indicated_value": None if subject_income is None else _round(chosen * subject_income),
+        "comparables": items,
+    }
+
+
 def dcf_valuation(
     cash_flows: Sequence[float],
     discount_rate_pct: float,
