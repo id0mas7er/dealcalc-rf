@@ -14,6 +14,7 @@ numbers (``12`` means 12%).
 from __future__ import annotations
 
 import math
+import statistics
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Optional
 
@@ -187,6 +188,155 @@ def income_capitalization(
         "noi_annual": _round(noi),
         "cap_rate_pct": _round(cap_rate),
         "indicated_value": _round(noi / (cap_rate / 100)),
+    }
+
+
+def net_operating_income(
+    potential_gross_income: Optional[float] = None,
+    rentable_area_sqm: Optional[float] = None,
+    rent_rate_sqm_year: Optional[float] = None,
+    vacancy_pct: float = 0,
+    collection_loss_pct: float = 0,
+    other_income_annual: float = 0,
+    operating_expenses: Optional[Sequence[Mapping[str, Any]]] = None,
+    currency: str = "RUB",
+) -> Dict[str, Any]:
+    """Build annual NOI from potential gross income (ПВД → ДВД → ЧОД).
+
+    Pass ``potential_gross_income`` or both ``rentable_area_sqm`` and
+    ``rent_rate_sqm_year`` (RUB per m² per year)::
+
+        ДВД = ПВД × (1 − vacancy_pct/100) × (1 − collection_loss_pct/100)
+              + other_income_annual
+        ЧОД = ДВД − operating expenses
+
+    ``operating_expenses`` is a list of ``{"name", "type", "value"}`` items:
+    ``abs`` is RUB per year, ``pct`` is a percent of ДВД. Every item is shown
+    in RUB in the result.
+    """
+
+    has_area_inputs = rentable_area_sqm is not None or rent_rate_sqm_year is not None
+    if potential_gross_income is not None and has_area_inputs:
+        raise ValueError(
+            "use either potential_gross_income or rentable_area_sqm with rent_rate_sqm_year"
+        )
+    if potential_gross_income is not None:
+        pgi = _non_negative("potential_gross_income", potential_gross_income)
+        basis: Dict[str, Any] = {}
+    elif rentable_area_sqm is not None and rent_rate_sqm_year is not None:
+        area = _finite_number("rentable_area_sqm", rentable_area_sqm)
+        if area <= 0:
+            raise ValueError("rentable_area_sqm must be greater than 0")
+        rate = _non_negative("rent_rate_sqm_year", rent_rate_sqm_year)
+        pgi = area * rate
+        basis = {"rentable_area_sqm": _round(area), "rent_rate_sqm_year": _round(rate)}
+    else:
+        raise ValueError(
+            "potential_gross_income or rentable_area_sqm with rent_rate_sqm_year is required"
+        )
+
+    vacancy = _percentage("vacancy_pct", vacancy_pct, minimum=0)
+    if vacancy >= 100:
+        raise ValueError("vacancy_pct must be less than 100")
+    collection = _percentage("collection_loss_pct", collection_loss_pct, minimum=0)
+    if collection >= 100:
+        raise ValueError("collection_loss_pct must be less than 100")
+    other_income = _non_negative("other_income_annual", other_income_annual)
+
+    vacancy_loss = pgi * vacancy / 100
+    collection_loss = (pgi - vacancy_loss) * collection / 100
+    egi = pgi - vacancy_loss - collection_loss + other_income
+
+    expenses = []
+    total_expenses = 0.0
+    for index, expense in enumerate(operating_expenses or []):
+        prefix = f"operating_expenses[{index}]"
+        if not isinstance(expense, Mapping):
+            raise ValueError(f"{prefix} must be an object")
+        name = expense.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError(f"{prefix}.name must be a non-empty string")
+        kind = expense.get("type")
+        value = _non_negative(f"{prefix}.value", expense.get("value"))
+        if kind == "abs":
+            amount = value
+        elif kind == "pct":
+            amount = egi * value / 100
+        else:
+            raise ValueError(f"{prefix}.type must be 'abs' or 'pct'")
+        total_expenses += amount
+        expenses.append(
+            {"name": name.strip(), "type": kind, "value": _round(value), "amount": _round(amount)}
+        )
+
+    return {
+        "approach": "income",
+        "currency": _currency(currency),
+        **basis,
+        "potential_gross_income": _round(pgi),
+        "vacancy_pct": _round(vacancy),
+        "vacancy_loss": _round(vacancy_loss),
+        "collection_loss_pct": _round(collection),
+        "collection_loss": _round(collection_loss),
+        "other_income_annual": _round(other_income),
+        "effective_gross_income": _round(egi),
+        "operating_expenses": expenses,
+        "total_operating_expenses": _round(total_expenses),
+        "operating_expense_ratio_pct": None
+        if egi == 0
+        else _round(total_expenses / egi * 100),
+        "net_operating_income": _round(egi - total_expenses),
+    }
+
+
+def cap_rate_extraction(
+    comparables: Sequence[Mapping[str, Any]],
+) -> Dict[str, Any]:
+    """Extract a market capitalization rate from comparable sales.
+
+    Each comparable contains ``price`` and annual ``noi``, with optional
+    ``source`` and ``date``. ``cap_rate_pct = noi / price × 100``. The result
+    gives the mean, median, range and the coefficient of variation against
+    the 33% homogeneity threshold; choosing the rate is up to the appraiser.
+    """
+
+    if not comparables:
+        raise ValueError("comparables must contain at least one item")
+
+    items = []
+    rates = []
+    for index, comparable in enumerate(comparables):
+        prefix = f"comparables[{index}]"
+        if not isinstance(comparable, Mapping):
+            raise ValueError(f"{prefix} must be an object")
+        price = _finite_number(f"{prefix}.price", comparable.get("price"))
+        if price <= 0:
+            raise ValueError(f"{prefix}.price must be greater than 0")
+        noi = _finite_number(f"{prefix}.noi", comparable.get("noi"))
+        if noi <= 0:
+            raise ValueError(f"{prefix}.noi must be greater than 0")
+        rates.append(noi / price * 100)
+        item: Dict[str, Any] = {
+            "index": index + 1,
+            "price": _round(price),
+            "noi": _round(noi),
+            "cap_rate_pct": _round(noi / price * 100),
+        }
+        for key in ("source", "date"):
+            if key in comparable:
+                item[key] = json_value(comparable[key])
+        items.append(item)
+
+    return {
+        "approach": "income",
+        "method": "cap_rate_extraction",
+        "sample_size": len(items),
+        "mean_cap_rate_pct": _round(statistics.mean(rates)),
+        "median_cap_rate_pct": _round(statistics.median(rates)),
+        "min_cap_rate_pct": _round(min(rates)),
+        "max_cap_rate_pct": _round(max(rates)),
+        "variation": variation(rates),
+        "comparables": items,
     }
 
 

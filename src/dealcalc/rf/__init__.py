@@ -6,10 +6,12 @@ valuation report compliant with Russian appraisal standards.
 """
 
 from .real_estate import (
+    cap_rate_extraction,
     comparative_approach,
     cost_approach,
     dcf_valuation,
     income_capitalization,
+    net_operating_income,
     reconcile_approaches,
 )
 from .data import deduplicate_listings, load_listings, normalize_listing
@@ -21,6 +23,8 @@ __all__ = [
     "cost_approach",
     "dcf_valuation",
     "income_capitalization",
+    "net_operating_income",
+    "cap_rate_extraction",
     "reconcile_approaches",
     "deduplicate_listings",
     "load_listings",

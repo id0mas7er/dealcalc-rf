@@ -55,6 +55,46 @@ def rf_income_capitalization(
 
 
 @mcp.tool()
+def rf_net_operating_income(
+    potential_gross_income: Optional[float] = None,
+    rentable_area_sqm: Optional[float] = None,
+    rent_rate_sqm_year: Optional[float] = None,
+    vacancy_pct: float = 0,
+    collection_loss_pct: float = 0,
+    other_income_annual: float = 0,
+    operating_expenses: Optional[List[dict]] = None,
+    currency: str = "RUB",
+) -> dict:
+    """Build annual NOI: potential gross income (ПВД) -> effective gross
+    income (ДВД) -> net operating income (ЧОД).
+
+    Pass potential_gross_income, or rentable_area_sqm and rent_rate_sqm_year
+    (RUB per m² per year). ДВД = ПВД × (1 - vacancy) × (1 - collection loss)
+    + other income. operating_expenses is a list of {"name", "type", "value"}
+    items: "abs" is RUB per year, "pct" is a percent of ДВД."""
+    return rf.net_operating_income(
+        potential_gross_income,
+        rentable_area_sqm,
+        rent_rate_sqm_year,
+        vacancy_pct,
+        collection_loss_pct,
+        other_income_annual,
+        operating_expenses,
+        currency,
+    )
+
+
+@mcp.tool()
+def rf_cap_rate_extraction(comparables: List[dict]) -> dict:
+    """Extract a market capitalization rate from comparable sales.
+
+    Each comparable contains price and annual noi, with optional source and
+    date. Returns each rate, mean, median, range and the coefficient of
+    variation against the 33% threshold; the appraiser chooses the rate."""
+    return rf.cap_rate_extraction(comparables)
+
+
+@mcp.tool()
 def rf_dcf_valuation(
     cash_flows: List[float],
     discount_rate_pct: float,
