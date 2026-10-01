@@ -64,7 +64,11 @@ Then run `claude` and the tools are available.
 `rf_new_equivalent_price`, `rf_parameter_unit_price`, `rf_chain_index`,
 `rf_index_price`, `rf_physical_depreciation`, `rf_scrap_value`,
 `rf_residual_value`, `rf_cost_from_price`, `rf_price_from_cost`,
-`rf_qualitative_adjustments` — 22 in total.
+`rf_qualitative_adjustments`, `rf_check_assignment`,
+`rf_gordon_terminal_value` — 24 in total.
+
+Every result carries `status` (always a draft for the appraiser),
+`method_card` (standard, formula, formula status) and `checks`.
 
 ## Units
 

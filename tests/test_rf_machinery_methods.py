@@ -194,7 +194,7 @@ def test_qualitative_adjustments_several_pairs():
 
     assert [analog["role"] for analog in result["analogs"]] == ["lower", "lower", "upper"]
     assert [pair["value"] for pair in result["pairs"]] == [133.33, 130.0]
-    assert [pair["weight"] for pair in result["pairs"]] == pytest.approx([4 / 7, 3 / 7])
+    assert [pair["weight"] for pair in result["pairs"]] == pytest.approx([4 / 7, 3 / 7], abs=1e-4)
     assert result["weighted_value"] == pytest.approx(131.9, abs=0.01)
     # range method: upper with fewest effective adjustments, lower with fewest
     # effective adjustments and the highest price

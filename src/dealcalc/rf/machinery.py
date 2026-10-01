@@ -11,7 +11,12 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
-from ._adjustments import json_value
+from ._meta import (
+    FORMULA_METHODICAL,
+    FORMULA_TECHNICAL,
+    method_card,
+    observation_fields,
+)
 
 
 def _number(name: str, value: Any) -> float:
@@ -33,6 +38,12 @@ def _positive(name: str, value: Any) -> float:
     return number
 
 
+@method_card(
+    'BRAKING_COEFFICIENT',
+    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формула (24)',
+    'b = ln(Ц2/Ц1) / ln(X2/X1)',
+    FORMULA_METHODICAL,
+)
 def braking_coefficient(
     price_1: float, param_1: float, price_2: float, param_2: float
 ) -> Dict[str, Any]:
@@ -58,6 +69,12 @@ def braking_coefficient(
     }
 
 
+@method_card(
+    'NEW_EQUIVALENT_PRICE',
+    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формула (22)',
+    'Цус = Цан / (1 − Кизн)',
+    FORMULA_METHODICAL,
+)
 def new_equivalent_price(price: float, total_depreciation_pct: float) -> Dict[str, Any]:
     """Price a used analog would have as new (formula 22).
 
@@ -83,6 +100,12 @@ def _non_negative(name: str, value: Any) -> float:
     return number
 
 
+@method_card(
+    'PARAMETER_UNIT_PRICE',
+    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», разд. 5.6',
+    'g = (Ц1 − Ц2) / (X1 − X2)',
+    FORMULA_METHODICAL,
+)
 def parameter_unit_price(
     price_1: float, param_1: float, price_2: float, param_2: float
 ) -> Dict[str, Any]:
@@ -108,6 +131,12 @@ def parameter_unit_price(
     }
 
 
+@method_card(
+    'CHAIN_INDEX',
+    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», индексный метод',
+    'h = (Цn / Ц0)^(1/n)',
+    FORMULA_METHODICAL,
+)
 def chain_index(price_start: float, price_end: float, periods: float) -> Dict[str, Any]:
     """Average chain price index between two prices of a similar object.
 
@@ -125,6 +154,12 @@ def chain_index(price_start: float, price_end: float, periods: float) -> Dict[st
     }
 
 
+@method_card(
+    'INDEX_PRICE',
+    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», индексный метод',
+    'ПВСт = ПВС0 × h^n',
+    FORMULA_METHODICAL,
+)
 def index_price(base_price: float, chain_index: float, periods: float) -> Dict[str, Any]:
     """Index a known past price to the valuation date (index method).
 
@@ -146,6 +181,12 @@ def index_price(base_price: float, chain_index: float, periods: float) -> Dict[s
     }
 
 
+@method_card(
+    'PHYSICAL_DEPRECIATION',
+    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», табл. 5, стр. 15',
+    'ФИ = Р·n/ПВС + (Кзф/Кзн)·n/(Nэж·ПВС)·(ПВС − Сут − Р·Nэж)',
+    FORMULA_METHODICAL,
+)
 def physical_depreciation(
     age_years: float,
     economic_life_years: float,
@@ -203,9 +244,21 @@ def physical_depreciation(
         "incurable_pct": round(incurable * 100, 2),
         "total_pct": 100.0 if capped else round(total, 2),
         "capped": capped,
+        "checks": [
+            f"Расчётный износ {round(total, 2)}% превышает 100% и ограничен 100%: "
+            "проверьте срок эксплуатации и срок экономической жизни."
+        ]
+        if capped
+        else [],
     }
 
 
+@method_card(
+    'SCRAP_VALUE',
+    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», табл. 5, стр. 26',
+    'Сут = М × См − затраты на утилизацию',
+    FORMULA_METHODICAL,
+)
 def scrap_value(
     mass_kg: float, scrap_price_per_kg: float, disposal_cost: float = 0
 ) -> Dict[str, Any]:
@@ -225,6 +278,12 @@ def scrap_value(
     }
 
 
+@method_card(
+    'MACHINERY_COST',
+    'ФСО №10, п. 14; ФСО V; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формула (10)',
+    'V = C × (1 − СО) + Сут',
+    FORMULA_TECHNICAL,
+)
 def residual_value(
     replacement_cost: float, total_depreciation_pct: float, salvage_value: float = 0
 ) -> Dict[str, Any]:
@@ -294,6 +353,12 @@ def _structure_fields(structure: Dict[str, Optional[float]]) -> Dict[str, Option
     }
 
 
+@method_card(
+    'COST_FROM_PRICE',
+    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формулы (13), (16)',
+    'Сп = (1 − Кр)·Ц/(1 + НДС); Сп = (1 − Нпр − Кчр)·Ц/((1 + НДС)(1 − Нпр))',
+    FORMULA_METHODICAL,
+)
 def cost_from_price(
     price: float,
     profitability_pct: float,
@@ -315,6 +380,12 @@ def cost_from_price(
     return {**_structure_fields(structure), **_price_breakdown(value, cost, structure["vat"])}
 
 
+@method_card(
+    'PRICE_FROM_COST',
+    'ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формулы (12), (15)',
+    'Ц = (1 + НДС)·Сп/(1 − Кр); Ц = (1 + НДС)(1 − Нпр)·Сп/(1 − Нпр − Кчр)',
+    FORMULA_METHODICAL,
+)
 def price_from_cost(
     cost: float,
     profitability_pct: float,
@@ -332,6 +403,12 @@ def price_from_cost(
     return {**_structure_fields(structure), **_price_breakdown(price, full_cost, structure["vat"])}
 
 
+@method_card(
+    'QUALITATIVE_ADJUSTMENTS',
+    'ФСО V; ФСО №10; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формулы (26)–(27)',
+    'С = (Цн·N−в + Цв·N+н) / (N−в + N+н)',
+    FORMULA_METHODICAL,
+)
 def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     """Method of directed qualitative adjustments (formulas 26 and 27).
 
@@ -391,9 +468,7 @@ def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, A
             "effective": abs(effective),
             "role": "lower" if effective > 0 else "upper" if effective < 0 else "neutral",
         }
-        for key in ("source", "date"):
-            if key in analog:
-                item[key] = json_value(analog[key])
+        item.update(observation_fields(analog, prefix))
         described.append((item, price, effective, up + down))
 
     lower = [entry for entry in described if entry[2] > 0]
@@ -416,8 +491,9 @@ def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, A
     weight_sum = sum(raw_weights)
     weighted = 0.0
     for pair, raw in zip(pairs, raw_weights):
-        pair["weight"] = raw / weight_sum
-        weighted += pair["value"] * pair["weight"]
+        weight = raw / weight_sum
+        weighted += pair["value"] * weight
+        pair["weight"] = round(weight, 4)
         pair["value"] = round(pair["value"], 2)
 
     best_upper = min(upper, key=lambda entry: (-entry[2], entry[1]))

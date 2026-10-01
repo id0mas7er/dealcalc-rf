@@ -65,15 +65,19 @@ def test_reconcile_approaches():
     result = reconcile_approaches(
         {"comparative": 10_000_000, "income": 9_000_000},
         {"comparative": 0.6, "income": 0.4},
+        max_divergence_pct=20,
     )
 
     assert result["reconciled_value"] == 9_600_000.0
     assert result["weights"] == {"comparative": 0.6, "income": 0.4}
+    assert result["divergence_pct"] == 11.11
+    assert result["status"] == "черновой расчёт"
+    assert result["method_card"]["id"] == "RECONCILIATION"
 
 
 def test_reconcile_rejects_mismatched_weights():
     with pytest.raises(ValueError, match="same approach names"):
-        reconcile_approaches({"comparative": 1}, {"income": 1})
+        reconcile_approaches({"comparative": 1}, {"income": 1}, 20)
 
 
 def test_cost_approach_rejects_negative_depreciation():
@@ -116,24 +120,50 @@ def test_cost_approach_rejects_negative_entrepreneurial_profit():
 
 def test_reconcile_rejects_weights_not_summing_to_one():
     with pytest.raises(ValueError, match="sum to 1"):
-        reconcile_approaches({"a": 100, "b": 200}, {"a": 0.6, "b": 0.3})
+        reconcile_approaches({"a": 100, "b": 200}, {"a": 0.6, "b": 0.3}, 20)
 
 
 def test_reconcile_returns_weights_as_given():
     third = 1 / 3
     result = reconcile_approaches(
-        {"a": 100, "b": 200, "c": 300}, {"a": third, "b": third, "c": third}
+        {"a": 100, "b": 200, "c": 300}, {"a": third, "b": third, "c": third}, 250
     )
 
     assert sum(result["weights"].values()) == pytest.approx(1)
     assert result["reconciled_value"] == 200.0
 
 
-def test_reconcile_default_weights_are_equal():
-    result = reconcile_approaches({"a": 100, "b": 200, "c": 300})
+def test_reconcile_requires_weights():
+    with pytest.raises(ValueError, match="weights are required"):
+        reconcile_approaches({"a": 100, "b": 200}, None, 20)
 
-    assert sum(result["weights"].values()) == pytest.approx(1)
-    assert result["reconciled_value"] == 200.0
+
+def test_reconcile_divergence_above_threshold_is_not_reconciled():
+    result = reconcile_approaches({"a": 100, "b": 130}, {"a": 0.5, "b": 0.5}, 20)
+
+    assert result["divergence_pct"] == 30.0
+    assert result["status"] == "расчёт выполнен — согласование не автоматизировано"
+    assert "больше порога" in result["checks"][0]
+
+
+def test_reconcile_divergence_with_justification_needs_review():
+    result = reconcile_approaches(
+        {"a": 100, "b": 130},
+        {"a": 0.8, "b": 0.2},
+        20,
+        justification="Доходный подход опирается на два аналога аренды",
+    )
+
+    assert result["status"] == "нужна проверка оценщика"
+    assert result["justification"].startswith("Доходный")
+
+
+def test_reconcile_can_select_one_approach():
+    result = reconcile_approaches({"a": 100, "b": 300}, {"a": 1, "b": 0}, 10)
+
+    assert result["reconciled_value"] == 100.0
+    assert result["divergence_pct"] == 0.0
+    assert "весом 0" in result["checks"][0]
 
 
 def test_income_capitalization_rejects_negative_noi():

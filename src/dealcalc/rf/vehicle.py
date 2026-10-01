@@ -7,6 +7,13 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
 from ._adjustments import adjustment_steps, apply_adjustments, json_value, variation
+from ._meta import (
+    FORMULA_TECHNICAL,
+    method_card,
+    observation_checks,
+    observation_fields,
+    variation_checks,
+)
 
 
 def _number(name: str, value: Any, *, allow_none: bool = False) -> Optional[float]:
@@ -41,20 +48,29 @@ def _weighted_median(items: Sequence[tuple[float, float]]) -> float:
     return ordered[-1][0]
 
 
+@method_card(
+    "VEHICLE_COMPARATIVE",
+    "ФСО V; ФСО №10",
+    "P_adj = P_0 с последовательными поправками; V = взвешенная медиана P_adj",
+    FORMULA_TECHNICAL,
+)
 def vehicle_comparative_approach(
     subject: Mapping[str, Any],
     comparables: Sequence[Mapping[str, Any]],
     currency: str = "RUB",
-    max_year_diff: Optional[float] = 3,
-    max_mileage_diff: Optional[float] = 100_000,
+    max_year_diff: Optional[float] = None,
+    max_mileage_diff: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Estimate a vehicle from matched, adjusted comparable listings.
 
     The subject and each comparable should use the normalized fields from
     :func:`dealcalc.rf.data.normalize_listing`. Comparables are matched by
     brand/model when those fields are present, and optionally limited by year
-    and mileage differences. ``adjustments`` and ``weight`` are optional
-    analyst-supplied fields on each comparable.
+    and mileage differences set by the appraiser (no default limits; an
+    unset limit is reported in ``checks``). ``adjustments`` and ``weight``
+    are optional analyst-supplied fields on each comparable; the
+    provenance of the observation (``source``, ``date``, ``url``,
+    ``price_type``, ``conditions``, ``reliability``) is kept.
 
     ``adjustments`` is a list of ``{"name", "type", "value"}`` steps applied in
     order to the price: ``pct`` multiplies by ``1 + value / 100``, ``abs`` adds
@@ -148,9 +164,10 @@ def vehicle_comparative_approach(
             "adjusted_price_rub": round(adjusted_price, 2),
             "weight": weight,
         }
-        for field in ("listing_id", "source", "url", "brand", "model", "year", "mileage_km"):
+        for field in ("listing_id", "brand", "model", "year", "mileage_km", "collected_at"):
             if field in comparable and comparable[field] not in (None, ""):
                 item[field] = json_value(comparable[field])
+        item.update(observation_fields(comparable, prefix))
         matched.append(item)
 
     if not matched:
@@ -159,6 +176,14 @@ def vehicle_comparative_approach(
     weight_sum = sum(weight for _, weight in weighted_items)
     weighted_mean = sum(value * weight for value, weight in weighted_items) / weight_sum
     adjusted_prices = [item["adjusted_price_rub"] for item in matched]
+    price_variation = variation(adjusted_prices)
+    checks = observation_checks(matched, date_keys=("date", "collected_at"))
+    checks += variation_checks(price_variation, len(matched))
+    if max_year_diff is None or max_mileage_diff is None:
+        checks.append(
+            "Не заданы ограничения отбора по году и/или пробегу: "
+            "сопоставимость аналогов обоснуйте отдельно."
+        )
     return {
         "approach": "comparative",
         "asset_type": "vehicle",
@@ -173,11 +198,12 @@ def vehicle_comparative_approach(
             "low": round(min(adjusted_prices), 2),
             "high": round(max(adjusted_prices), 2),
         },
-        "variation": variation(adjusted_prices),
+        "variation": price_variation,
         "selection": {
             "max_year_diff": max_year_diff,
             "max_mileage_diff": max_mileage_diff,
             "automatic_adjustments": False,
         },
         "comparables": matched,
+        "checks": checks,
     }

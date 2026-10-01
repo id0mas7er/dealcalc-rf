@@ -18,7 +18,17 @@ import statistics
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Optional
 
-from ._adjustments import adjustment_steps, apply_adjustments, json_value, variation
+from ._adjustments import adjustment_steps, apply_adjustments, variation
+from ._meta import (
+    FORMULA_NORM,
+    FORMULA_TECHNICAL,
+    STATUS_NOT_RECONCILED,
+    STATUS_REVIEW,
+    method_card,
+    observation_checks,
+    observation_fields,
+    variation_checks,
+)
 
 
 def _finite_number(name: str, value: Any) -> float:
@@ -67,6 +77,12 @@ def _round(value: float) -> float:
     return round(value, 2)
 
 
+@method_card(
+    "COMPARABLE_UNIT_PRICE",
+    "ФСО V; ФСО №7",
+    "u_i = P_adj,i / q_i; V = q_subject × u_reconciled; поправки — последовательно",
+    FORMULA_TECHNICAL,
+)
 def comparative_approach(
     subject_area_sqm: float,
     comparables: Sequence[Mapping[str, Any]],
@@ -75,8 +91,10 @@ def comparative_approach(
     """Calculate an indicated value from adjusted comparable unit prices.
 
     Each comparable must contain ``price`` and ``area_sqm``. Optional fields
-    are ``adjustments``, ``weight`` (a positive analyst-supplied weight),
-    ``source`` and ``date``.
+    are ``adjustments``, ``weight`` (a positive analyst-supplied weight) and
+    the provenance of the observation: ``source``, ``date``, ``url``,
+    ``price_type`` (``сделка`` or ``предложение``), ``conditions`` and
+    ``reliability``; missing provenance is reported in ``checks``.
 
     ``adjustments`` is a list of ``{"name", "type", "value"}`` steps applied in
     order to the unit price ``price / area_sqm``: ``pct`` multiplies by
@@ -139,14 +157,13 @@ def comparative_approach(
             "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
             "adjusted_unit_price": _round(adjusted_unit_price),
             "weight": _round(weight),
+            **observation_fields(comparable, prefix),
         }
-        for key in ("source", "date"):
-            if key in comparable:
-                item[key] = json_value(comparable[key])
         normalized.append(item)
 
     weighted_unit_price = _round(weighted_unit_sum / total_weight)
     adjusted_prices = [item["adjusted_unit_price"] for item in normalized]
+    sample_variation = variation(adjusted_prices)
     return {
         "approach": "comparative",
         "currency": currency_code,
@@ -160,11 +177,19 @@ def comparative_approach(
             "low": _round(min(adjusted_prices) * subject_area),
             "high": _round(max(adjusted_prices) * subject_area),
         },
-        "variation": variation(adjusted_prices),
+        "variation": sample_variation,
         "comparables": normalized,
+        "checks": observation_checks(normalized)
+        + variation_checks(sample_variation, len(normalized)),
     }
 
 
+@method_card(
+    "DIRECT_CAPITALIZATION",
+    "ФСО V, п. 14; ФСО №7",
+    "V = I_1 / R",
+    FORMULA_NORM,
+)
 def income_capitalization(
     noi_annual: float,
     cap_rate_pct: float,
@@ -191,6 +216,12 @@ def income_capitalization(
     }
 
 
+@method_card(
+    "NOI_BUILD_UP",
+    "ФСО V; ФСО №7",
+    "ДВД = ПВД × (1 − недозагрузка) × (1 − недосбор) + прочие доходы; ЧОД = ДВД − расходы",
+    FORMULA_TECHNICAL,
+)
 def net_operating_income(
     potential_gross_income: Optional[float] = None,
     rentable_area_sqm: Optional[float] = None,
@@ -289,6 +320,12 @@ def net_operating_income(
     }
 
 
+@method_card(
+    "CAP_RATE_EXTRACTION",
+    "ФСО №7 (общая ставка по соотношению доходов и цен аналогов)",
+    "R_i = ЧОД_i / P_i",
+    FORMULA_TECHNICAL,
+)
 def cap_rate_extraction(
     comparables: Sequence[Mapping[str, Any]],
 ) -> Dict[str, Any]:
@@ -321,12 +358,11 @@ def cap_rate_extraction(
             "price": _round(price),
             "noi": _round(noi),
             "cap_rate_pct": _round(noi / price * 100),
+            **observation_fields(comparable, prefix),
         }
-        for key in ("source", "date"):
-            if key in comparable:
-                item[key] = json_value(comparable[key])
         items.append(item)
 
+    rate_variation = variation(rates)
     return {
         "approach": "income",
         "method": "cap_rate_extraction",
@@ -335,11 +371,18 @@ def cap_rate_extraction(
         "median_cap_rate_pct": _round(statistics.median(rates)),
         "min_cap_rate_pct": _round(min(rates)),
         "max_cap_rate_pct": _round(max(rates)),
-        "variation": variation(rates),
+        "variation": rate_variation,
         "comparables": items,
+        "checks": observation_checks(items) + variation_checks(rate_variation, len(items)),
     }
 
 
+@method_card(
+    "GROSS_RENT_MULTIPLIER",
+    "ФСО V; ФСО №7",
+    "ВРМ_i = P_i / ВД_i; V = ВРМ × ВД_объекта",
+    FORMULA_TECHNICAL,
+)
 def gross_rent_multiplier(
     comparables: Sequence[Mapping[str, Any]],
     subject_gross_income: Optional[float] = None,
@@ -383,15 +426,14 @@ def gross_rent_multiplier(
             "price": _round(price),
             "gross_income": _round(income),
             "multiplier": _round(price / income),
+            **observation_fields(comparable, prefix),
         }
-        for key in ("source", "date"):
-            if key in comparable:
-                item[key] = json_value(comparable[key])
         items.append(item)
 
     mean = statistics.mean(multipliers)
     median = statistics.median(multipliers)
     chosen = _round(mean if statistic == "mean" else median)
+    multiplier_variation = variation(multipliers)
     return {
         "approach": "income",
         "method": "gross_rent_multiplier",
@@ -401,14 +443,22 @@ def gross_rent_multiplier(
         "median_multiplier": _round(median),
         "min_multiplier": _round(min(multipliers)),
         "max_multiplier": _round(max(multipliers)),
-        "variation": variation(multipliers),
+        "variation": multiplier_variation,
         "statistic": statistic,
         "subject_gross_income": None if subject_income is None else _round(subject_income),
         "indicated_value": None if subject_income is None else _round(chosen * subject_income),
         "comparables": items,
+        "checks": observation_checks(items)
+        + variation_checks(multiplier_variation, len(items)),
     }
 
 
+@method_card(
+    "DCF",
+    "ФСО V; ФСО №7",
+    "V0 = Σ CF_t / (1 + r)^t + TV_n / (1 + r)^n",
+    "математическая реализация требования ФСО V приводить потоки к дате оценки; прогноз и ставка стандартом не установлены",
+)
 def dcf_valuation(
     cash_flows: Sequence[float],
     discount_rate_pct: float,
@@ -453,6 +503,12 @@ def dcf_valuation(
     }
 
 
+@method_card(
+    "PROPERTY_COST_APPROACH",
+    "ФСО №7, п. 24; ФСО V",
+    "V = V_земли + (C × (1 + ПП)) × (1 − Иф)(1 − Ифу)(1 − Иэ)",
+    "структурная формула ФСО №7; модель износа (перемножение) — расчётное представление",
+)
 def cost_approach(
     replacement_cost: float,
     land_value: float = 0,
@@ -516,18 +572,29 @@ def cost_approach(
     }
 
 
+@method_card(
+    "RECONCILIATION",
+    "ФСО V",
+    "V = Σ w_i × V_i, Σ w_i = 1",
+    "расчётное представление; веса, выбор подхода и анализ расхождений — суждение оценщика",
+)
 def reconcile_approaches(
     approach_values: Mapping[str, float],
-    weights: Optional[Mapping[str, float]] = None,
+    weights: Mapping[str, float],
+    max_divergence_pct: float,
+    justification: Optional[str] = None,
     currency: str = "RUB",
 ) -> Dict[str, Any]:
-    """Reconcile indicated values using analyst-supplied positive weights.
+    """Reconcile indicated values with appraiser-supplied weights.
 
-    Weights must sum to 1 (tolerance 0.0001); without weights all approaches
-    get equal weight. This produces a transparent weighted result and range.
-    It does not choose
-    which approaches should be used or claim that a particular weight is
-    required by Russian standards.
+    There are no default weights: mechanical averaging is not allowed.
+    Weights must sum to 1 (tolerance 0.0001); a weight of 0 excludes an
+    approach, so one approach can be selected. ``max_divergence_pct`` is the
+    appraiser's threshold of material divergence, measured as
+    ``(max − min) / min × 100`` over the approaches with positive weight.
+    Above it the result is not reconciled automatically unless a
+    ``justification`` is given; the deviation of every approach from the
+    reconciled value is shown.
     """
 
     if not approach_values:
@@ -536,29 +603,63 @@ def reconcile_approaches(
         str(name): _non_negative(f"approach_values[{name}]", value)
         for name, value in approach_values.items()
     }
-    if weights is None:
-        normalized_weights = {name: 1 / len(values) for name in values}
-    else:
-        missing = set(values) - set(weights)
-        extra = set(weights) - set(values)
-        if missing or extra:
-            raise ValueError("weights must have exactly the same approach names")
-        normalized_weights = {
-            name: _finite_number(f"weights[{name}]", weights[name]) for name in values
-        }
-        if any(weight <= 0 for weight in normalized_weights.values()):
-            raise ValueError("all approach weights must be greater than 0")
-        if not math.isclose(sum(normalized_weights.values()), 1, abs_tol=1e-4):
-            raise ValueError("weights must sum to 1")
+    if not isinstance(weights, Mapping):
+        raise ValueError("weights are required: mechanical averaging is not allowed")
+    missing = set(values) - set(weights)
+    extra = set(weights) - set(values)
+    if missing or extra:
+        raise ValueError("weights must have exactly the same approach names")
+    given = {name: _non_negative(f"weights[{name}]", weights[name]) for name in values}
+    if not math.isclose(sum(given.values()), 1, abs_tol=1e-4):
+        raise ValueError("weights must sum to 1")
+    threshold = _non_negative("max_divergence_pct", max_divergence_pct)
+    note = None
+    if justification is not None:
+        if not isinstance(justification, str) or not justification.strip():
+            raise ValueError("justification must be a non-empty string")
+        note = justification.strip()
 
-    reconciled = sum(values[name] * normalized_weights[name] for name in values)
-    return {
+    used = {name: value for name, value in values.items() if given[name] > 0}
+    reconciled = sum(values[name] * given[name] for name in values)
+    low, high = min(used.values()), max(used.values())
+    divergence = None if low == 0 else (high - low) / low * 100
+
+    checks = []
+    status = None
+    if divergence is None:
+        checks.append("Одно из значений равно 0: расхождение подходов не рассчитывается.")
+    elif divergence > threshold:
+        if note is None:
+            status = STATUS_NOT_RECONCILED
+            checks.append(
+                f"Расхождение подходов {_round(divergence)}% больше порога {_round(threshold)}%: "
+                "исследуйте причины и обоснуйте веса или выбор подхода (justification)."
+            )
+        else:
+            status = STATUS_REVIEW
+            checks.append(
+                f"Расхождение подходов {_round(divergence)}% больше порога {_round(threshold)}%; "
+                "приведено обоснование оценщика."
+            )
+    excluded = [name for name in values if given[name] == 0]
+    if excluded:
+        checks.append(f"Подходы с весом 0 не участвуют в результате: {excluded}.")
+
+    result: Dict[str, Any] = {
         "currency": _currency(currency),
         "approach_values": {name: _round(value) for name, value in values.items()},
-        "weights": normalized_weights,
+        "weights": given,
         "reconciled_value": _round(reconciled),
-        "value_range": {
-            "low": _round(min(values.values())),
-            "high": _round(max(values.values())),
+        "deviation_from_reconciled_pct": {
+            name: None if reconciled == 0 else _round((value - reconciled) / reconciled * 100)
+            for name, value in used.items()
         },
+        "divergence_pct": None if divergence is None else _round(divergence),
+        "max_divergence_pct": _round(threshold),
+        "justification": note,
+        "value_range": {"low": _round(low), "high": _round(high)},
+        "checks": checks,
     }
+    if status is not None:
+        result["status"] = status
+    return result

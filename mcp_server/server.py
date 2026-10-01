@@ -125,6 +125,28 @@ def rf_irr(cash_flows: List[float]) -> dict:
 
 
 @mcp.tool()
+def rf_check_assignment(assignment: dict) -> dict:
+    """Check the valuation assignment before any calculation (ФСО III, IV).
+
+    assignment: object_type (real_estate | business | machinery | vehicle),
+    object_description, rights, purpose, value_type (рыночная,
+    инвестиционная, равновесная, ликвидационная), value_premises,
+    valuation_date (YYYY-MM-DD) and recommended fields for the object type.
+    Missing critical items give the status "недостаточно данных". Call it
+    first; do not start with a formula."""
+    return rf.check_assignment(assignment)
+
+
+@mcp.tool()
+def rf_gordon_terminal_value(
+    cash_flow_next: float, discount_rate_pct: float, growth_rate_pct: float
+) -> dict:
+    """Terminal value by the constant-growth model TV = CF(n+1) / (r - g);
+    requires r > g, a stable flow and a long or unlimited useful life."""
+    return rf.gordon_terminal_value(cash_flow_next, discount_rate_pct, growth_rate_pct)
+
+
+@mcp.tool()
 def rf_dcf_valuation(
     cash_flows: List[float],
     discount_rate_pct: float,
@@ -168,13 +190,20 @@ def rf_cost_approach(
 @mcp.tool()
 def rf_reconcile_approaches(
     approach_values: dict,
-    weights: Optional[dict] = None,
+    weights: dict,
+    max_divergence_pct: float,
+    justification: Optional[str] = None,
     currency: str = "RUB",
 ) -> dict:
-    """Reconcile indicated values using analyst-supplied positive weights.
+    """Reconcile indicated values with appraiser-supplied weights (sum 1).
 
-    Weights must sum to 1; without weights all approaches get equal weight."""
-    return rf.reconcile_approaches(approach_values, weights, currency)
+    No default weights: mechanical averaging is not allowed. A weight of 0
+    excludes an approach. max_divergence_pct is the appraiser's threshold of
+    material divergence ((max - min) / min); above it the result is "not
+    reconciled automatically" unless a justification is given."""
+    return rf.reconcile_approaches(
+        approach_values, weights, max_divergence_pct, justification, currency
+    )
 
 
 @mcp.tool()
@@ -182,8 +211,8 @@ def rf_vehicle_comparative_approach(
     subject: dict,
     comparables: List[dict],
     currency: str = "RUB",
-    max_year_diff: Optional[float] = 3,
-    max_mileage_diff: Optional[float] = 100_000,
+    max_year_diff: Optional[float] = None,
+    max_mileage_diff: Optional[float] = None,
 ) -> dict:
     """Estimate a vehicle from matched and explicitly adjusted comparables.
 

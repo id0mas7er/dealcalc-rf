@@ -16,7 +16,8 @@ from .real_estate import (
     reconcile_approaches,
 )
 from .data import deduplicate_listings, load_listings, normalize_listing
-from .investment import irr, npv
+from .assignment import check_assignment
+from .investment import gordon_terminal_value, irr, npv
 from .machinery import (
     braking_coefficient,
     chain_index,
@@ -41,6 +42,8 @@ __all__ = [
     "cap_rate_extraction",
     "gross_rent_multiplier",
     "npv",
+    "gordon_terminal_value",
+    "check_assignment",
     "irr",
     "reconcile_approaches",
     "deduplicate_listings",

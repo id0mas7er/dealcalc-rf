@@ -35,6 +35,8 @@ EXPECTED_TOOLS = {
     "rf_cost_from_price",
     "rf_price_from_cost",
     "rf_qualitative_adjustments",
+    "rf_check_assignment",
+    "rf_gordon_terminal_value",
 }
 
 
