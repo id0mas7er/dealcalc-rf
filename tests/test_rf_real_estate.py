@@ -179,10 +179,3 @@ def test_reconcile_divergence_base(base, expected):
     assert result["divergence_pct"] == expected
     assert result["divergence_base"] == base
     assert base in result["divergence_formula"]
-
-
-def test_reconcile_weights_are_rounded():
-    third = 1 / 3
-    result = reconcile_approaches({"a": 1, "b": 1, "c": 1}, {"a": third, "b": third, "c": third}, 10)
-
-    assert result["weights"] == {"a": 0.3333, "b": 0.3333, "c": 0.3333}

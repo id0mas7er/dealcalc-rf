@@ -98,12 +98,12 @@ def test_vehicle_contains_match():
 
 
 def test_vehicle_model_synonyms_cover_irregular_transliteration():
-    comparables = [{"brand": "Hyundai", "model": "Solaris", "price_rub": 1_000_000}]
+    comparables = [{"brand": "Kia", "model": "Ceed", "price_rub": 1_000_000}]
 
     with pytest.raises(ValueError, match="no comparable"):
-        vehicle_comparative_approach({"brand": "Хендай", "model": "Солярис"}, comparables)
+        vehicle_comparative_approach({"brand": "Киа", "model": "Сид"}, comparables)
     result = vehicle_comparative_approach(
-        {"brand": "Хендай", "model": "Солярис"}, comparables, synonyms={"solaris": ["солярис"]}
+        {"brand": "Киа", "model": "Сид"}, comparables, synonyms={"ceed": ["сид"]}
     )
 
     assert result["sample_size"] == 1

@@ -55,9 +55,10 @@ def rf_load_listings(path: str, source: str, listing_type: str = "property") -> 
     """Импорт сохранённых объявлений из локального файла CSV, JSON или JSONL (без сети).
 
     listing_type: property | vehicle. Русские названия колонок, цена в рублях,
-    адрес, дата публикации (date — дата цены), тип цены (по умолчанию «предложение»),
-    пошаговые корректировки; дубли удаляются. Результат — аналоги для сравнительного
-    подхода."""
+    адрес, дата публикации (date — дата цены), тип цены (по умолчанию «предложение»;
+    нераспознанный оставляется пустым с import_warnings), пошаговые корректировки;
+    дубли удаляются. Ошибка в строке называет её номер. Результат — аналоги для
+    сравнительного подхода. Читается любой локальный путь, доступный процессу сервера."""
     listings = rf.load_listings(path, source, listing_type)
     return {"count": len(listings), "listings": listings}
 
@@ -162,15 +163,25 @@ def rf_dcf_valuation(
     currency: str = "RUB",
     mid_year: bool = False,
     terminal_timing: str = "end",
+    first_cash_flow_period: int = 1,
     context: Optional[dict] = None,
 ) -> dict:
     """Дисконтирование денежных потоков (ФСО V, п. 15).
 
-    cash_flows[0] — поток ПЕРВОГО ГОДА (период 1, не 0, в отличие от rf_npv).
-    mid_year — дисконтирование на середину года. terminal_timing: end (конец года n)
-    | mid (n − 0,5 — для стоимости по Гордону из потока середины года n + 1)."""
+    cash_flows[0] — поток ПЕРВОГО ГОДА (first_cash_flow_period = 1, по умолчанию) или
+    ПЕРИОДА 0 без дисконтирования, как в rf_npv (first_cash_flow_period = 0).
+    mid_year — дисконтирование на середину года (только при периоде 1).
+    terminal_timing: end (конец последнего периода) | mid (на полпериода раньше — для
+    стоимости по Гордону из потока середины следующего года)."""
     return rf.dcf_valuation(
-        cash_flows, discount_rate_pct, terminal_value, currency, mid_year, terminal_timing, context=context
+        cash_flows,
+        discount_rate_pct,
+        terminal_value,
+        currency,
+        mid_year,
+        terminal_timing,
+        first_cash_flow_period,
+        context=context,
     )
 
 
@@ -218,15 +229,18 @@ def rf_capital_recovery_rate(
     remaining_life_years: float,
     method: str,
     safe_rate_pct: Optional[float] = None,
+    value_change_pct: Optional[float] = None,
     context: Optional[dict] = None,
 ) -> dict:
-    """Ставка капитализации = ставка дохода + норма возврата капитала (ФСО №7, п. 23 (д)).
+    """Ставка капитализации = ставка дохода + Δ × норма возврата капитала (ФСО №7, п. 23 (д)).
 
     method: ring (1/n) | inwood (фонд возмещения по ставке дохода) | hoskold (фонд
     возмещения по безрисковой ставке safe_rate_pct). remaining_life_years — оставшийся
-    срок экономической жизни. Выбор модели — за оценщиком."""
+    срок экономической жизни. value_change_pct (Δ) — доля потери стоимости за срок, %:
+    без неё принимается 100 % (завышает ставку при большой доле земли); при росте
+    стоимости — отрицательная. Выбор модели — за оценщиком."""
     return rf.capital_recovery_rate(
-        discount_rate_pct, remaining_life_years, method, safe_rate_pct, context=context
+        discount_rate_pct, remaining_life_years, method, safe_rate_pct, value_change_pct, context=context
     )
 
 
@@ -326,12 +340,16 @@ def rf_asset_liquidation_value(
     typical_exposure_months: float,
     liquidation_exposure_months: float,
     additional_costs: float = 0,
+    forced_sale_discount_pct: Optional[float] = None,
+    forced_sale_justification: Optional[str] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Ликвидационная стоимость отдельного объекта (ФСО II): недвижимость, машина, автомобиль.
 
-    V_л = V_р × (1 + r)^(−(T_типичный − T_вынужденный)/12) − дополнительные затраты;
-    сроки в месяцах, ставка годовая. Срок экспозиции и ставку обосновывает оценщик.
+    V_л = V_р × (1 + r)^(−(T_типичный − T_вынужденный)/12) × (1 − d_вын) − доп. затраты;
+    сроки в месяцах, ставка годовая. Множитель по срокам учитывает только стоимость
+    времени. Скидка на вынужденность продажи (эластичность спроса) — forced_sale_discount_pct
+    с обязательным forced_sale_justification; без неё в guardrails напоминание.
     Для бизнеса при ликвидации — rf_business_liquidation_value."""
     return rf.asset_liquidation_value(
         market_value,
@@ -339,6 +357,8 @@ def rf_asset_liquidation_value(
         typical_exposure_months,
         liquidation_exposure_months,
         additional_costs,
+        forced_sale_discount_pct,
+        forced_sale_justification,
         context=context,
     )
 
@@ -358,13 +378,15 @@ def rf_vehicle_comparative_approach(
     weighting: str = "manual",
     match: str = "exact",
     synonyms: Optional[dict] = None,
+    synonyms_file: Optional[str] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Сравнительный подход для автомобиля (ФСО V; ФСО №10, п. 13): итог — взвешенная медиана.
 
-    Подбор по марке и модели с синонимами (ВАЗ/Lada/Лада) и транслитерацией;
-    match: exact | contains (Vesta → Vesta SW Cross); synonyms: {каноническое имя:
-    [написания]} — для марок и моделей. Ограничения по году и пробегу задаёт оценщик
+    Подбор по марке и модели по словарю пакета (ВАЗ/Lada/Лада, Солярис/Solaris,
+    X-Trail/X Trail) и транслитерации; match: exact | contains (Vesta → Vesta SW Cross);
+    synonyms: {каноническое имя: [написания]} — для марок и моделей; synonyms_file —
+    локальный JSON {"brands": {...}, "models": {...}}. Ограничения по году и пробегу задаёт оценщик
     (умолчаний нет). adjustments — как в rf_comparative_approach, abs — в рублях;
     weighting: manual | inverse_gross | inverse_count."""
     return rf.vehicle_comparative_approach(
@@ -376,6 +398,7 @@ def rf_vehicle_comparative_approach(
         weighting,
         match,
         synonyms,
+        synonyms_file,
         context=context,
     )
 

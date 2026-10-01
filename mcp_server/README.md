@@ -67,6 +67,12 @@ claude mcp add dealcalc-rf -- python /absolute/path/to/dealcalc-rf/mcp_server/se
   `rf_external_obsolescence_paired_sales`, `rf_external_obsolescence_lost_income`,
   `rf_fund_unit_value`.
 
+`rf_load_listings` и параметр `synonyms_file` у `rf_vehicle_comparative_approach`
+читают любой локальный путь, который назовёт агент и к которому есть доступ у
+процесса сервера. Для локального stdio-сервера это допустимо: сервер работает
+с правами пользователя. Не подключайте его к агентам, которым не доверяете
+чтение ваших файлов.
+
 Каждый результат — черновик для проверки оценщиком: `status`, `context`,
 `method_card` (стандарт, формула, статус формулы, ссылка на документ),
 `conditions`, `guardrails`, `checks`.

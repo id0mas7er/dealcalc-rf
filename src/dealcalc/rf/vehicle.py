@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections.abc import Mapping, Sequence
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from ._adjustments import (
     WEIGHTING_FORMULAS,
@@ -50,34 +52,13 @@ _TRANSLIT = str.maketrans({
     "я": "ya",
 })
 
-# Common spellings of brands on the Russian market; extend with ``synonyms``.
-BRAND_SYNONYMS = {
-    "lada": ["ваз", "vaz", "лада", "lada"],
-    "uaz": ["уаз", "uaz"],
-    "gaz": ["газ", "gaz"],
-    "moskvich": ["москвич", "moskvich"],
-    "haval": ["хавал", "хавейл", "haval"],
-    "chery": ["чери", "chery"],
-    "geely": ["джили", "geely"],
-    "changan": ["чанган", "changan"],
-    "exeed": ["эксид", "exeed"],
-    "omoda": ["омода", "omoda"],
-    "jetour": ["джетур", "jetour"],
-    "tank": ["танк", "tank"],
-    "kia": ["киа", "kia"],
-    "hyundai": ["хендай", "хёндэ", "хундай", "hyundai"],
-    "toyota": ["тойота", "toyota"],
-    "volkswagen": ["фольксваген", "volkswagen", "vw"],
-    "skoda": ["шкода", "skoda", "škoda"],
-    "renault": ["рено", "renault"],
-    "nissan": ["ниссан", "nissan"],
-    "mitsubishi": ["мицубиси", "митсубиси", "mitsubishi"],
-    "bmw": ["бмв", "bmw"],
-    "mercedes-benz": ["мерседес", "мерседес-бенц", "mercedes", "mercedes-benz"],
-    "chevrolet": ["шевроле", "chevrolet"],
-    "ford": ["форд", "ford"],
-    "mazda": ["мазда", "mazda"],
-}
+# Spellings of brands and models on the Russian market, {canonical: [spellings]};
+# extended with ``synonyms`` and ``synonyms_file``.
+_SYNONYMS_PATH = Path(__file__).with_name("vehicle_synonyms.json")
+with _SYNONYMS_PATH.open(encoding="utf-8") as _handle:
+    _BUILTIN_SYNONYMS = json.load(_handle)
+BRAND_SYNONYMS: Dict[str, List[str]] = _BUILTIN_SYNONYMS["brands"]
+MODEL_SYNONYMS: Dict[str, List[str]] = _BUILTIN_SYNONYMS["models"]
 
 
 def _tokens(value: Any) -> List[str]:
@@ -89,11 +70,36 @@ def _latin(token: str) -> str:
     return token.translate(_TRANSLIT)
 
 
-def _synonym_index(extra: Optional[Mapping[str, Sequence[str]]]) -> Dict[str, str]:
-    groups = {key: list(values) for key, values in BRAND_SYNONYMS.items()}
-    for key, values in (extra or {}).items():
-        groups.setdefault(str(key).casefold(), []).extend(values)
-        groups[str(key).casefold()].append(str(key))
+def _merge_groups(
+    base: Mapping[str, Sequence[str]], *extras: Optional[Mapping[str, Sequence[str]]]
+) -> Dict[str, List[str]]:
+    groups = {key: list(values) for key, values in base.items()}
+    for extra in extras:
+        for key, values in (extra or {}).items():
+            groups.setdefault(str(key).casefold(), []).extend(values)
+            groups[str(key).casefold()].append(str(key))
+    return groups
+
+
+def _load_synonyms_file(path: str) -> Tuple[Dict[str, List[str]], Dict[str, List[str]]]:
+    """Read appraiser synonyms: {"brands": {...}, "models": {...}}."""
+
+    with Path(path).open(encoding="utf-8-sig") as handle:
+        data = json.load(handle)
+    if not isinstance(data, Mapping):
+        raise ValueError("synonyms_file must hold an object with 'brands' and/or 'models'")
+    result = []
+    for part in ("brands", "models"):
+        groups = data.get(part) or {}
+        if not isinstance(groups, Mapping) or not all(
+            isinstance(values, list) for values in groups.values()
+        ):
+            raise ValueError(f"synonyms_file.{part} must be an object: {{canonical name: [spellings]}}")
+        result.append(groups)
+    return result[0], result[1]
+
+
+def _synonym_index(groups: Mapping[str, Sequence[str]]) -> Dict[str, str]:
     index = {}
     for key, values in groups.items():
         for value in values:
@@ -116,11 +122,33 @@ def _brand_keys(value: Any, index: Mapping[str, str]) -> set:
     return keys
 
 
-def _model_tokens(value: Any, index: Mapping[str, str]) -> List[str]:
-    """Model tokens in Latin; appraiser-supplied synonyms map spellings that
-    letter-by-letter transliteration cannot (Солярис -> solaris)."""
+def _phrase(value: Any) -> str:
+    """Lower-case words separated by single spaces: "X-Trail" -> "x trail"."""
 
-    return [index.get(token) or index.get(_latin(token)) or _latin(token) for token in _tokens(value)]
+    text = "" if value is None else str(value).casefold().replace("ё", "е")
+    return " ".join(re.findall(r"[0-9a-zа-я]+", text))
+
+
+def _model_replacements(groups: Mapping[str, Sequence[str]]) -> List[Tuple[str, str]]:
+    pairs = {}
+    for canonical, values in groups.items():
+        for value in values:
+            variant = _phrase(value)
+            if variant:
+                # Also the letter-by-letter Latin form: Крета -> kreta -> creta.
+                pairs[variant] = pairs[_latin(variant)] = _phrase(canonical)
+    return sorted(pairs.items(), key=lambda pair: -len(pair[0]))
+
+
+def _model_tokens(value: Any, replacements: Sequence[Tuple[str, str]]) -> List[str]:
+    """Model tokens in Latin. Dictionary phrases map spellings that
+    letter-by-letter transliteration cannot (Солярис -> solaris,
+    Х-Трейл -> x trail); hyphens count as spaces."""
+
+    text = _phrase(value)
+    for variant, canonical in replacements:
+        text = re.sub(rf"(?<!\S){re.escape(variant)}(?!\S)", canonical, text)
+    return [_latin(token) for token in text.split()]
 
 
 def _models_match(subject: List[str], comparable: List[str], mode: str) -> bool:
@@ -157,6 +185,7 @@ def vehicle_comparative_approach(
     weighting: str = "manual",
     match: str = "exact",
     synonyms: Optional[Mapping[str, Sequence[str]]] = None,
+    synonyms_file: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Estimate a vehicle from matched, adjusted comparable listings.
 
@@ -176,6 +205,12 @@ def vehicle_comparative_approach(
     one step. ``variation`` reports the coefficient of variation of adjusted
     prices against the 33% homogeneity threshold. No automatic depreciation
     coefficient is imposed.
+
+    Brands and models are matched through the package dictionary
+    ``vehicle_synonyms.json`` and transliteration. ``synonyms``
+    (``{canonical name: [spellings]}``, applied to brands and models) and
+    ``synonyms_file`` (a local JSON ``{"brands": {...}, "models": {...}}``)
+    extend it.
     """
 
     if not isinstance(subject, Mapping):
@@ -195,9 +230,11 @@ def vehicle_comparative_approach(
         raise ValueError("match must be 'exact' or 'contains'")
     if synonyms is not None and not isinstance(synonyms, Mapping):
         raise ValueError("synonyms must be an object: {canonical name: [spellings]}")
-    synonym_index = _synonym_index(synonyms)
+    file_brands, file_models = _load_synonyms_file(synonyms_file) if synonyms_file else ({}, {})
+    synonym_index = _synonym_index(_merge_groups(BRAND_SYNONYMS, file_brands, synonyms))
+    model_replacements = _model_replacements(_merge_groups(MODEL_SYNONYMS, file_models, synonyms))
     subject_brand = _brand_keys(subject.get("brand"), synonym_index)
-    subject_model = _model_tokens(subject.get("model"), synonym_index)
+    subject_model = _model_tokens(subject.get("model"), model_replacements)
 
     if max_year_diff is not None and max_year_diff < 0:
         raise ValueError("max_year_diff must be non-negative or None")
@@ -214,7 +251,7 @@ def vehicle_comparative_approach(
         if price <= 0:
             raise ValueError(f"comparables[{index - 1}].price_rub must be greater than 0")
         comp_brand = _brand_keys(comparable.get("brand"), synonym_index)
-        comp_model = _model_tokens(comparable.get("model"), synonym_index)
+        comp_model = _model_tokens(comparable.get("model"), model_replacements)
         if subject_brand and not subject_brand & comp_brand:
             rejected += 1
             continue

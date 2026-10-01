@@ -105,12 +105,34 @@ def _context_guardrails(context: Mapping[str, Any]) -> List[str]:
     return [f"Не указаны {', '.join(missing)} (параметр context): результат нельзя переносить в отчёт без них."]
 
 
+def _vat_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[str]:
+    """Compare the VAT treatment of the assignment with the calculation's rate."""
+
+    rate = result.get("vat_pct")
+    vat = context.get("vat")
+    if not isinstance(rate, (int, float)) or vat is None:
+        return []
+    checks = []
+    if vat in ("excluded", "not_applicable") and rate > 0:
+        checks.append(
+            f"В context указано «{VAT_MODES[vat]}», а в расчёте ставка НДС {rate:g}%: "
+            "проверьте, какая величина переносится в отчёт."
+        )
+    if vat == "included" and rate == 0:
+        checks.append("В context указано «с НДС», а в расчёте ставка НДС 0%.")
+    expected = context.get("vat_rate_pct")
+    if vat == "included" and expected is not None and rate > 0 and rate != expected:
+        checks.append(f"Ставка НДС в расчёте {rate:g}% не совпадает со ставкой в context {expected:g}%.")
+    return checks
+
+
 def method_card(
     method_id: str,
     standard: str,
     formula: str,
     formula_status: str,
     source_url: str = "",
+    context_reminder: bool = True,
 ) -> Callable[[Callable[..., Dict[str, Any]]], Callable[..., Dict[str, Any]]]:
     """Wrap a calculation result into the common envelope.
 
@@ -118,7 +140,10 @@ def method_card(
     (reminders), ``conditions`` and ``status``; without an explicit status
     any check turns the result into "нужна проверка оценщика". Every
     wrapped calculation accepts an optional keyword ``context`` with the
-    valuation date, type of value and VAT treatment of the assignment.
+    valuation date, type of value and VAT treatment of the assignment; a
+    missing context is reminded only where ``context_reminder`` is true —
+    calculations returning a value, not auxiliary rates and coefficients. A
+    result field ``vat_pct`` is checked against the context VAT treatment.
     """
 
     def decorate(func: Callable[..., Dict[str, Any]]) -> Callable[..., Dict[str, Any]]:
@@ -126,11 +151,12 @@ def method_card(
         def wrapper(*args: Any, context: Any = None, **kwargs: Any) -> Dict[str, Any]:
             assignment = assignment_context(context)
             result = dict(func(*args, **kwargs))
-            checks = list(result.pop("checks", []))
+            checks = list(result.pop("checks", [])) + _vat_checks(assignment, result)
             guardrails = list(result.pop("guardrails", []))
             conditions = list(result.pop("conditions", []))
             guardrails += offer_guardrails(result)
-            guardrails += _context_guardrails(assignment)
+            if context_reminder:
+                guardrails += _context_guardrails(assignment)
             status = result.pop("status", None) or (STATUS_REVIEW if checks else STATUS_DRAFT)
             card = {
                 "id": method_id,

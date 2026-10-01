@@ -140,6 +140,7 @@ def _present(value: Any) -> bool:
     "проверка состава задания на оценку до расчёта",
     "процедурная проверка, не расчётная формула",
     source_url="https://srosovet.ru/activities/npa/fso-iii/",
+    context_reminder=False,
 )
 def check_assignment(assignment: Mapping[str, Any]) -> Dict[str, Any]:
     """Check the valuation assignment before calculations.

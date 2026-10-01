@@ -73,7 +73,7 @@ def npv(cash_flows: Sequence[float], discount_rate_pct: float) -> Dict[str, Any]
 
 
 @method_card("IRR", 'ФСО V', "Σ CF_t / (1 + IRR)^t = 0", FORMULA_TECHNICAL,
-    source_url="https://srosovet.ru/activities/npa/fso-v/")
+    source_url="https://srosovet.ru/activities/npa/fso-v/", context_reminder=False)
 def irr(cash_flows: Sequence[float]) -> Dict[str, Any]:
     """Internal rate of return of annual cash flows, in percent.
 
@@ -153,7 +153,7 @@ def gordon_terminal_value(
 @method_card(
     "ASSET_LIQUIDATION_VALUE",
     "ФСО II (ликвидационная стоимость; вынужденная продажа)",
-    "V_л = V_р × (1 + r)^(−(T_р − T_л) / 12)",
+    "V_л = V_р × (1 + r)^(−(T_р − T_л) / 12) × (1 − d_вын) − З_доп",
     FORMULA_TECHNICAL,
     source_url="https://srosovet.ru/activities/npa/fso-ii/",
 )
@@ -163,6 +163,8 @@ def asset_liquidation_value(
     typical_exposure_months: float,
     liquidation_exposure_months: float,
     additional_costs: float = 0,
+    forced_sale_discount_pct: Optional[float] = None,
+    forced_sale_justification: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Liquidation value of a single asset (property, machine, vehicle).
 
@@ -171,6 +173,11 @@ def asset_liquidation_value(
     where ``r`` is the appraiser's annual rate and the periods are in
     months; ``additional_costs`` (sale costs specific to the forced sale)
     are subtracted. The rate, both periods and the costs must be justified.
+
+    This factor is only the time value of the shorter exposure. The discount
+    for the forced nature of the sale (price elasticity of demand) is
+    ``forced_sale_discount_pct``, applied after it; it requires
+    ``forced_sale_justification``. Without it the result omits that discount.
     """
 
     value = _rate("market_value", market_value)
@@ -186,11 +193,31 @@ def asset_liquidation_value(
     costs = _flows([additional_costs])[0]
     if costs < 0:
         raise ValueError("additional_costs must be non-negative")
+    forced_discount = None
+    justification = None
+    if forced_sale_discount_pct is not None:
+        forced_discount = _rate("forced_sale_discount_pct", forced_sale_discount_pct)
+        if not 0 <= forced_discount < 100:
+            raise ValueError("forced_sale_discount_pct must be from 0 to less than 100")
+        if not isinstance(forced_sale_justification, str) or not forced_sale_justification.strip():
+            raise ValueError("forced_sale_justification is required with forced_sale_discount_pct")
+        justification = forced_sale_justification.strip()
 
     factor = (1 + rate / 100) ** (-(typical - forced) / 12)
-    discounted = value * factor
+    total_factor = factor * (1 - (forced_discount or 0) / 100)
+    discounted = value * total_factor
     liquidation = discounted - costs
     checks = []
+    guardrails = [
+        "Обоснуйте типичный срок экспозиции, срок вынужденной продажи и ставку дисконтирования.",
+        "Ликвидационная стоимость моделирует вынужденную продажу: не подменяйте ею рыночную.",
+    ]
+    if forced_discount is None:
+        guardrails.append(
+            "Скидка учитывает только стоимость времени (сокращение экспозиции), "
+            "а не вынужденность продажи (эластичность спроса): при необходимости "
+            "задайте forced_sale_discount_pct с обоснованием."
+        )
     if liquidation < 0:
         checks.append("Ликвидационная стоимость отрицательна: проверьте затраты и ставку.")
     return {
@@ -201,12 +228,12 @@ def asset_liquidation_value(
         "liquidation_exposure_months": forced,
         "liquidation_factor": round(factor, 6),
         "liquidation_discount_pct": money((1 - factor) * 100),
+        "forced_sale_discount_pct": None if forced_discount is None else money(forced_discount),
+        "forced_sale_justification": justification,
+        "total_discount_pct": money((1 - total_factor) * 100),
         "additional_costs": money(costs),
         "liquidation_value": money(liquidation),
-        "guardrails": [
-            "Обоснуйте типичный срок экспозиции, срок вынужденной продажи и ставку дисконтирования.",
-            "Ликвидационная стоимость моделирует вынужденную продажу: не подменяйте ею рыночную.",
-        ],
+        "guardrails": guardrails,
         "checks": checks,
     }
 
@@ -236,6 +263,7 @@ def _named_premiums(premiums: Any) -> List[Dict[str, Any]]:
     "Y = безрисковая ставка + Σ премий за риски",
     FORMULA_TECHNICAL,
     source_url="https://srosovet.ru/activities/npa/fso7/",
+    context_reminder=False,
 )
 def discount_rate_build_up(
     risk_free_rate_pct: float,
@@ -278,15 +306,17 @@ _RECOVERY_METHODS = {
 @method_card(
     "CAPITAL_RECOVERY_RATE",
     "ФСО №7, п. 23 (д): ставка с учётом модели возврата капитала",
-    "R = Y + норма возврата; Ринг: 1/n; Инвуд: Y/((1+Y)^n − 1); Хоскольд: Yб/((1+Yб)^n − 1)",
+    "R = Y + Δ × норма возврата; Ринг: 1/n; Инвуд: Y/((1+Y)^n − 1); Хоскольд: Yб/((1+Yб)^n − 1)",
     FORMULA_TECHNICAL,
     source_url="https://srosovet.ru/activities/npa/fso7/",
+    context_reminder=False,
 )
 def capital_recovery_rate(
     discount_rate_pct: float,
     remaining_life_years: float,
     method: str,
     safe_rate_pct: Optional[float] = None,
+    value_change_pct: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Capitalization rate = return on capital + return of capital.
 
@@ -294,6 +324,11 @@ def capital_recovery_rate(
     the discount rate) or ``hoskold`` (sinking fund at the safe rate
     ``safe_rate_pct``). ``remaining_life_years`` is the remaining economic
     life of the depreciating part. The choice of model is the appraiser's.
+
+    ``value_change_pct`` (Δ) is the share of value lost over that period:
+    ``R = Y + Δ × recovery``; negative when the value grows. Unset means a
+    full loss (Δ = 100 %), which overstates the rate when land is a
+    substantial part of the value.
     """
 
     if method not in _RECOVERY_METHODS:
@@ -317,14 +352,28 @@ def capital_recovery_rate(
             raise ValueError("safe_rate_pct is required for the Hoskold method")
         safe = _rate("safe_rate_pct", safe_rate_pct) / 100
         recovery = sinking_fund(safe)
+    guardrails = []
+    if value_change_pct is None:
+        change = 100.0
+        guardrails.append(
+            "Принята полная потеря стоимости за срок (Δ = 100 %): для объектов с "
+            "землёй или растущей стоимостью задайте value_change_pct."
+        )
+    else:
+        change = _rate("value_change_pct", value_change_pct)
+        if change > 100:
+            raise ValueError("value_change_pct must not exceed 100")
+    recovery *= change / 100
     return {
         "method": method,
         "method_label": _RECOVERY_METHODS[method],
         "discount_rate_pct": money(rate * 100),
         "safe_rate_pct": None if safe is None else money(safe * 100),
         "remaining_life_years": life,
+        "value_change_pct": change,
         "recovery_rate_pct": round(recovery * 100, 4),
         "capitalization_rate_pct": round((rate + recovery) * 100, 4),
+        "guardrails": guardrails,
         "checks": [],
     }
 

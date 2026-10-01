@@ -45,6 +45,7 @@ def _positive(name: str, value: Any) -> float:
     "b = ln(Ц2/Ц1) / ln(X2/X1)",
     FORMULA_METHODICAL,
     source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
+    context_reminder=False,
 )
 def braking_coefficient(
     price_1: float, param_1: float, price_2: float, param_2: float
@@ -109,6 +110,7 @@ def _non_negative(name: str, value: Any) -> float:
     "g = (Ц1 − Ц2) / (X1 − X2)",
     FORMULA_METHODICAL,
     source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
+    context_reminder=False,
 )
 def parameter_unit_price(
     price_1: float, param_1: float, price_2: float, param_2: float
@@ -141,6 +143,7 @@ def parameter_unit_price(
     "h = (Цn / Ц0)^(1/n)",
     FORMULA_METHODICAL,
     source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
+    context_reminder=False,
 )
 def chain_index(price_start: float, price_end: float, periods: float) -> Dict[str, Any]:
     """Average chain price index between two prices of a similar object.
@@ -193,6 +196,7 @@ def index_price(base_price: float, chain_index: float, periods: float) -> Dict[s
     "ФИ = Р·n/ПВС + (Кзф/Кзн)·n/(Nэж·ПВС)·(ПВС − Сут − Р·Nэж)",
     FORMULA_METHODICAL,
     source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
+    context_reminder=False,
 )
 def physical_depreciation(
     age_years: float,
@@ -279,6 +283,7 @@ def physical_depreciation(
     "Сут = М × См − затраты на утилизацию",
     FORMULA_METHODICAL,
     source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
+    context_reminder=False,
 )
 def scrap_value(
     mass_kg: float, scrap_price_per_kg: float, disposal_cost: float = 0
@@ -433,6 +438,7 @@ def price_from_cost(
     "С = (Цн·N−в + Цв·N+н) / (N−в + N+н)",
     FORMULA_METHODICAL,
     source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
+    context_reminder=False,
 )
 def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     """Method of directed qualitative adjustments (formulas 26 and 27).

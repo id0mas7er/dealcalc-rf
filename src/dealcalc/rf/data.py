@@ -14,7 +14,7 @@ import math
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 
 LISTING_TYPES = {"property", "vehicle"}
@@ -32,7 +32,6 @@ _ALIASES = {
         "дата объявления",
         "дата размещения",
         "размещено",
-        "дата",
     ),
     "price_type": ("price_type", "тип цены"),
     "collected_at": ("collected_at", "дата сбора", "дата_сбора"),
@@ -154,15 +153,22 @@ _PRICE_TYPES = {
 }
 
 
-def _price_type(value: Any) -> str:
-    """Marketplace exports are offers unless the file says otherwise."""
+def _price_type(value: Any) -> Tuple[str, Optional[str]]:
+    """Marketplace exports are offers unless the file says otherwise.
+
+    An unknown value ("Продажа", "Аренда" — often the deal type) is left
+    empty with a warning instead of stopping the import.
+    """
 
     text = _text(value).lower()
     if not text:
-        return "предложение"
+        return "предложение", None
     if text not in _PRICE_TYPES:
-        raise ValueError("price_type must be 'сделка' or 'предложение'")
-    return _PRICE_TYPES[text]
+        return "", (
+            f"Тип цены «{_text(value)}» не распознан (ожидается «сделка» или "
+            "«предложение»): поле оставлено пустым."
+        )
+    return _PRICE_TYPES[text], None
 
 
 def _text(value: Any) -> str:
@@ -210,7 +216,9 @@ def normalize_listing(
         number = parse_number(_lookup(row, field), field)
         if number is not None:
             values[field] = number
-    values["price_type"] = _price_type(_lookup(row, "price_type"))
+    values["price_type"], price_type_warning = _price_type(_lookup(row, "price_type"))
+    if price_type_warning:
+        values["import_warnings"] = [price_type_warning]
     adjustments = _parse_adjustments(_lookup(row, "adjustments"))
     if adjustments is not None:
         values["adjustments"] = adjustments
@@ -266,21 +274,24 @@ def deduplicate_listings(listings: Iterable[Mapping[str, Any]]) -> List[Dict[str
     return result
 
 
-def _json_rows(path: Path) -> Sequence[Mapping[str, Any]]:
+def _json_rows(path: Path) -> Iterable[Tuple[str, Any]]:
     with path.open("r", encoding="utf-8-sig") as handle:
         payload = json.load(handle)
-    if isinstance(payload, list):
-        return payload
     if isinstance(payload, Mapping):
         for key in ("items", "listings", "data"):
             candidate = payload.get(key)
             if isinstance(candidate, list):
-                return candidate
-        return [payload]
-    raise ValueError("JSON root must be an object or an array")
+                payload = candidate
+                break
+        else:
+            payload = [payload]
+    if not isinstance(payload, list):
+        raise ValueError("JSON root must be an object or an array")
+    for number, row in enumerate(payload, start=1):
+        yield f"item {number}", row
 
 
-def _jsonl_rows(path: Path) -> Iterable[Mapping[str, Any]]:
+def _jsonl_rows(path: Path) -> Iterable[Tuple[str, Mapping[str, Any]]]:
     with path.open("r", encoding="utf-8-sig") as handle:
         for line_number, line in enumerate(handle, start=1):
             if not line.strip():
@@ -291,10 +302,10 @@ def _jsonl_rows(path: Path) -> Iterable[Mapping[str, Any]]:
                 raise ValueError(f"invalid JSONL at line {line_number}") from exc
             if not isinstance(row, Mapping):
                 raise ValueError(f"JSONL line {line_number} must contain an object")
-            yield row
+            yield f"line {line_number}", row
 
 
-def _csv_rows(path: Path) -> Iterable[Mapping[str, Any]]:
+def _csv_rows(path: Path) -> Iterable[Tuple[str, Mapping[str, Any]]]:
     with path.open("r", encoding="utf-8-sig", newline="") as handle:
         # Sniff the delimiter from the header only: data cells may hold JSON
         # with commas. Quoting follows standard CSV ("" inside quoted cells).
@@ -307,7 +318,8 @@ def _csv_rows(path: Path) -> Iterable[Mapping[str, Any]]:
         reader = csv.DictReader(handle, delimiter=delimiter)
         if not reader.fieldnames:
             raise ValueError("CSV must contain a header row")
-        yield from reader
+        for row in reader:
+            yield f"line {reader.line_num}", row
 
 
 def load_listings(
@@ -319,7 +331,8 @@ def load_listings(
     """Load and normalize a local CSV, JSON, or JSONL export.
 
     No network request is made. Duplicate source/listing_id rows are removed
-    while preserving the first occurrence.
+    while preserving the first occurrence. An invalid row stops the import
+    with its line (CSV, JSONL) or item (JSON) number in the error.
     """
 
     input_path = Path(path)
@@ -335,7 +348,10 @@ def load_listings(
     else:
         raise ValueError("supported input formats are .csv, .json, and .jsonl")
 
-    normalized = [
-        normalize_listing(row, source, listing_type, collected_at) for row in rows
-    ]
+    normalized = []
+    for label, row in rows:
+        try:
+            normalized.append(normalize_listing(row, source, listing_type, collected_at))
+        except ValueError as exc:
+            raise ValueError(f"{label}: {exc}") from exc
     return deduplicate_listings(normalized)

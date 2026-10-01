@@ -349,6 +349,7 @@ def net_operating_income(
     "R_i = ЧОД_i / P_i",
     FORMULA_TECHNICAL,
     source_url="https://srosovet.ru/activities/npa/fso7/",
+    context_reminder=False,
 )
 def cap_rate_extraction(
     comparables: Sequence[Mapping[str, Any]],
@@ -492,15 +493,19 @@ def dcf_valuation(
     currency: str = "RUB",
     mid_year: bool = False,
     terminal_timing: str = "end",
+    first_cash_flow_period: int = 1,
 ) -> Dict[str, Any]:
     """Calculate the present value of annual cash flows and a terminal value.
 
     ``cash_flows[0]`` is the YEAR-1 cash flow (period 1, not period 0 as in
     :func:`npv`), discounted at the end of the year, or at its middle
-    (period ``t - 0.5``) when ``mid_year`` is true.
+    (period ``t - 0.5``) when ``mid_year`` is true. With
+    ``first_cash_flow_period=0`` the first flow is at period 0 and is not
+    discounted, as in :func:`npv` (mid-year discounting is not allowed then).
     ``terminal_timing`` sets when the terminal value is discounted: ``end``
-    (end of year n, default) or ``mid`` (n − 0.5, consistent with a Gordon
-    value built from a mid-year flow of year n + 1).
+    (end of the last forecast period, default) or ``mid`` (half a period
+    earlier, consistent with a Gordon value built from a mid-year flow of
+    the next year).
     The function does not prescribe a growth model, exit yield, or
     discount-rate source.
     """
@@ -513,11 +518,16 @@ def dcf_valuation(
         raise ValueError("discount_rate_pct must be greater than -100")
     terminal = _finite_number("terminal_value", terminal_value)
     rate = discount_rate / 100
-    terminal_period = _terminal_period(len(flows), terminal_timing)
+    if first_cash_flow_period not in (0, 1) or isinstance(first_cash_flow_period, bool):
+        raise ValueError("first_cash_flow_period must be 0 or 1")
+    if first_cash_flow_period == 0 and mid_year:
+        raise ValueError("mid_year discounting needs first_cash_flow_period=1")
+    terminal_period = _terminal_period(len(flows) + first_cash_flow_period - 1, terminal_timing)
 
     shift = 0.5 if mid_year else 0
     present_values = [
-        flow / ((1 + rate) ** (period - shift)) for period, flow in enumerate(flows, 1)
+        flow / ((1 + rate) ** (period - shift))
+        for period, flow in enumerate(flows, first_cash_flow_period)
     ]
     terminal_present_value = terminal / ((1 + rate) ** terminal_period)
     indicated_value = sum(present_values) + terminal_present_value
@@ -525,7 +535,7 @@ def dcf_valuation(
         "approach": "income",
         "method": "discounted_cash_flow",
         "discounting": "mid_year" if mid_year else "end_of_year",
-        "first_cash_flow_period": 1,
+        "first_cash_flow_period": first_cash_flow_period,
         "terminal_discount_period": terminal_period,
         "currency": _currency(currency),
         "cash_flows": [_round(flow) for flow in flows],
@@ -781,7 +791,7 @@ def reconcile_approaches(
     result: Dict[str, Any] = {
         "currency": _currency(currency),
         "approach_values": {name: _round(value) for name, value in values.items()},
-        "weights": {name: round(weight, 4) for name, weight in given.items()},
+        "weights": given,
         "reconciled_value": _round(reconciled),
         "deviation_from_reconciled_pct": {
             name: None if reconciled == 0 else _round((value - reconciled) / reconciled * 100)
