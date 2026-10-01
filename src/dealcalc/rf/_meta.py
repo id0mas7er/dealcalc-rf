@@ -181,7 +181,9 @@ def method_card(
     return decorate
 
 
-OBSERVATION_FIELDS = ("source", "date", "url", "price_type", "conditions", "reliability")
+OBSERVATION_FIELDS = (
+    "source", "date", "url", "price_type", "conditions", "reliability", "import_warnings",
+)
 _PRICE_TYPES = {
     "сделка": "сделка",
     "transaction": "сделка",
@@ -203,6 +205,9 @@ def observation_fields(comparable: Mapping[str, Any], prefix: str) -> Dict[str, 
             if normalized is None:
                 raise ValueError(f"{prefix}.price_type must be 'сделка' or 'предложение'")
             value = normalized
+        if key == "import_warnings" and isinstance(value, (list, tuple)):
+            fields[key] = [str(warning) for warning in value]
+            continue
         fields[key] = json_value(value)
     return fields
 
@@ -220,6 +225,9 @@ def observation_checks(items: Sequence[Mapping[str, Any]], date_keys: Sequence[s
         checks.append(f"Не указана дата цены у аналогов {no_date}.")
     if no_type:
         checks.append(f"Не указан тип цены (сделка/предложение) у аналогов {no_type}.")
+    for item in items:
+        for warning in item.get("import_warnings") or []:
+            checks.append(f"Аналог {item['index']}: {warning}")
     return checks
 
 

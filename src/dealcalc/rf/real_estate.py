@@ -792,6 +792,7 @@ def reconcile_approaches(
         "currency": _currency(currency),
         "approach_values": {name: _round(value) for name, value in values.items()},
         "weights": given,
+        "weight_shares": dict(zip(given, weight_shares(list(given.values())))),
         "reconciled_value": _round(reconciled),
         "deviation_from_reconciled_pct": {
             name: None if reconciled == 0 else _round((value - reconciled) / reconciled * 100)
