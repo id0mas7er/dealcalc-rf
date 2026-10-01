@@ -54,9 +54,10 @@ def test_cost_approach():
         external_depreciation_pct=15,
     )
 
-    assert result["depreciation"]["total_pct"] == 30.0
-    assert result["depreciated_improvements"] == 14_000_000.0
-    assert result["indicated_value"] == 19_000_000.0
+    # 1 - 0.90 * 0.95 * 0.85 = 27.325%
+    assert result["depreciation"]["total_pct"] == pytest.approx(27.33, abs=0.01)
+    assert result["depreciated_improvements"] == 14_535_000.0
+    assert result["indicated_value"] == 19_535_000.0
 
 
 def test_reconcile_approaches():
@@ -72,3 +73,68 @@ def test_reconcile_approaches():
 def test_reconcile_rejects_mismatched_weights():
     with pytest.raises(ValueError, match="same approach names"):
         reconcile_approaches({"comparative": 1}, {"income": 1})
+
+
+def test_cost_approach_rejects_negative_depreciation():
+    with pytest.raises(ValueError, match="physical_depreciation_pct"):
+        cost_approach(10_000_000, physical_depreciation_pct=-50)
+
+
+def test_cost_approach_combines_depreciation_multiplicatively():
+    result = cost_approach(100, 0, 40, 30, 30)
+
+    assert result["depreciation"]["total_pct"] == 70.6
+    assert result["depreciated_improvements"] == 29.4
+
+
+def test_cost_approach_accepts_depreciation_summing_over_100():
+    result = cost_approach(100, 0, 50, 40, 20)
+
+    assert result["depreciation"]["total_pct"] == 76.0
+    assert result["indicated_value"] == 24.0
+
+
+def test_cost_approach_applies_entrepreneurial_profit_before_depreciation():
+    result = cost_approach(
+        replacement_cost=20_000_000,
+        land_value=5_000_000,
+        physical_depreciation_pct=10,
+        entrepreneurial_profit_pct=15,
+    )
+
+    assert result["entrepreneurial_profit"] == 3_000_000.0
+    assert result["replacement_cost_with_profit"] == 23_000_000.0
+    assert result["depreciated_improvements"] == 20_700_000.0
+    assert result["indicated_value"] == 25_700_000.0
+
+
+def test_cost_approach_rejects_negative_entrepreneurial_profit():
+    with pytest.raises(ValueError, match="entrepreneurial_profit_pct"):
+        cost_approach(100, entrepreneurial_profit_pct=-5)
+
+
+def test_reconcile_rejects_weights_not_summing_to_one():
+    with pytest.raises(ValueError, match="sum to 1"):
+        reconcile_approaches({"a": 100, "b": 200}, {"a": 0.6, "b": 0.3})
+
+
+def test_reconcile_returns_weights_as_given():
+    third = 1 / 3
+    result = reconcile_approaches(
+        {"a": 100, "b": 200, "c": 300}, {"a": third, "b": third, "c": third}
+    )
+
+    assert sum(result["weights"].values()) == pytest.approx(1)
+    assert result["reconciled_value"] == 200.0
+
+
+def test_reconcile_default_weights_are_equal():
+    result = reconcile_approaches({"a": 100, "b": 200, "c": 300})
+
+    assert sum(result["weights"].values()) == pytest.approx(1)
+    assert result["reconciled_value"] == 200.0
+
+
+def test_income_capitalization_rejects_negative_noi():
+    with pytest.raises(ValueError, match="noi_annual"):
+        income_capitalization(-1_000_000, 10)

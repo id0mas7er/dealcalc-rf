@@ -39,8 +39,16 @@ def _non_negative(name: str, value: Any) -> float:
     return number
 
 
-def _percentage(name: str, value: Any, *, maximum: Optional[float] = None) -> float:
+def _percentage(
+    name: str,
+    value: Any,
+    *,
+    minimum: Optional[float] = None,
+    maximum: Optional[float] = None,
+) -> float:
     number = _finite_number(name, value)
+    if minimum is not None and number < minimum:
+        raise ValueError(f"{name} must be at least {minimum}")
     if maximum is not None and number > maximum:
         raise ValueError(f"{name} must be at most {maximum}")
     return number
@@ -160,7 +168,7 @@ def income_capitalization(
     function only performs the arithmetic.
     """
 
-    noi = _finite_number("noi_annual", noi_annual)
+    noi = _non_negative("noi_annual", noi_annual)
     cap_rate = _finite_number("cap_rate_pct", cap_rate_pct)
     if cap_rate <= 0:
         raise ValueError("cap_rate_pct must be greater than 0")
@@ -218,36 +226,51 @@ def cost_approach(
     physical_depreciation_pct: float = 0,
     functional_depreciation_pct: float = 0,
     external_depreciation_pct: float = 0,
+    entrepreneurial_profit_pct: float = 0,
     currency: str = "RUB",
 ) -> Dict[str, Any]:
     """Calculate a residual improvement value plus land value.
 
-    The three depreciation inputs are explicitly added and applied to the
-    replacement cost. This is a transparent calculation convention, not a
-    universal correction prescribed by the FSO; the selected depreciation
-    method and evidence belong in the appraisal assignment and report.
+    Formula::
+
+        cost_with_profit = replacement_cost * (1 + entrepreneurial_profit_pct / 100)
+        total_depreciation = 1 - (1 - physical) * (1 - functional) * (1 - external)
+        value = land_value + cost_with_profit * (1 - total_depreciation)
+
+    The depreciation components are combined multiplicatively. The selected
+    depreciation method, entrepreneurial profit and their evidence belong in
+    the appraisal assignment and report.
     """
 
     replacement = _non_negative("replacement_cost", replacement_cost)
     land = _non_negative("land_value", land_value)
     physical = _percentage(
-        "physical_depreciation_pct", physical_depreciation_pct, maximum=100
+        "physical_depreciation_pct", physical_depreciation_pct, minimum=0, maximum=100
     )
     functional = _percentage(
-        "functional_depreciation_pct", functional_depreciation_pct, maximum=100
+        "functional_depreciation_pct",
+        functional_depreciation_pct,
+        minimum=0,
+        maximum=100,
     )
     external = _percentage(
-        "external_depreciation_pct", external_depreciation_pct, maximum=100
+        "external_depreciation_pct", external_depreciation_pct, minimum=0, maximum=100
     )
-    total_depreciation = physical + functional + external
-    if total_depreciation > 100:
-        raise ValueError("total depreciation must not exceed 100 percent")
+    profit_pct = _non_negative("entrepreneurial_profit_pct", entrepreneurial_profit_pct)
 
-    depreciated_improvements = replacement * (1 - total_depreciation / 100)
+    entrepreneurial_profit = replacement * profit_pct / 100
+    cost_with_profit = replacement + entrepreneurial_profit
+    remaining_share = (1 - physical / 100) * (1 - functional / 100) * (1 - external / 100)
+    total_depreciation = (1 - remaining_share) * 100
+
+    depreciated_improvements = cost_with_profit * remaining_share
     return {
         "approach": "cost",
         "currency": _currency(currency),
         "replacement_cost": _round(replacement),
+        "entrepreneurial_profit_pct": _round(profit_pct),
+        "entrepreneurial_profit": _round(entrepreneurial_profit),
+        "replacement_cost_with_profit": _round(cost_with_profit),
         "land_value": _round(land),
         "depreciation": {
             "physical_pct": _round(physical),
@@ -267,7 +290,9 @@ def reconcile_approaches(
 ) -> Dict[str, Any]:
     """Reconcile indicated values using analyst-supplied positive weights.
 
-    This produces a transparent weighted result and range. It does not choose
+    Weights must sum to 1 (tolerance 0.0001); without weights all approaches
+    get equal weight. This produces a transparent weighted result and range.
+    It does not choose
     which approaches should be used or claim that a particular weight is
     required by Russian standards.
     """
@@ -279,7 +304,7 @@ def reconcile_approaches(
         for name, value in approach_values.items()
     }
     if weights is None:
-        normalized_weights = {name: 1.0 for name in values}
+        normalized_weights = {name: 1 / len(values) for name in values}
     else:
         missing = set(values) - set(weights)
         extra = set(weights) - set(values)
@@ -290,13 +315,14 @@ def reconcile_approaches(
         }
         if any(weight <= 0 for weight in normalized_weights.values()):
             raise ValueError("all approach weights must be greater than 0")
+        if not math.isclose(sum(normalized_weights.values()), 1, abs_tol=1e-4):
+            raise ValueError("weights must sum to 1")
 
-    weight_sum = sum(normalized_weights.values())
-    reconciled = sum(values[name] * normalized_weights[name] for name in values) / weight_sum
+    reconciled = sum(values[name] * normalized_weights[name] for name in values)
     return {
         "currency": _currency(currency),
         "approach_values": {name: _round(value) for name, value in values.items()},
-        "weights": {name: _round(weight / weight_sum) for name, weight in normalized_weights.items()},
+        "weights": normalized_weights,
         "reconciled_value": _round(reconciled),
         "value_range": {
             "low": _round(min(values.values())),
