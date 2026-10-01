@@ -93,5 +93,28 @@ def rf_reconcile_approaches(
     return rf.reconcile_approaches(approach_values, weights, currency)
 
 
+@mcp.tool()
+def rf_vehicle_comparative_approach(
+    subject: dict,
+    comparables: List[dict],
+    currency: str = "RUB",
+    max_year_diff: Optional[float] = 3,
+    max_mileage_diff: Optional[float] = 100_000,
+) -> dict:
+    """Estimate a vehicle from matched and explicitly adjusted comparables.
+
+    The subject and comparables use normalized fields such as brand, model,
+    year, mileage_km, and price_rub. No automatic depreciation coefficient is
+    imposed; analyst-supplied adjustment_pct and weight are preserved.
+    """
+    return rf.vehicle_comparative_approach(
+        subject,
+        comparables,
+        currency,
+        max_year_diff,
+        max_mileage_diff,
+    )
+
+
 if __name__ == "__main__":
     mcp.run()  # stdio transport

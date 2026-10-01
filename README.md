@@ -1,83 +1,110 @@
-# DealCalc RF
+# DealCalc RF — расчёты для оценщика в России
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://www.python.org/)
+Python-библиотека для расчётов стоимости недвижимости и автомобилей.
+Локальный MCP-сервер позволяет ИИ вызывать расчётные функции и получать
+результат с исходными данными, корректировками и весами.
 
-Deterministic calculation aids for **Russian real-estate valuation** plus a
-local (stdio) **MCP server** that exposes every calculation as a tool an AI
-agent can call. No hosting, no external data APIs, no accounts — just the math.
+## Возможности
 
-Forked from [dealcalc-core](https://github.com/dealcalcpro2026/dealcalc-core);
-the original US investment calculators have been removed.
+- Недвижимость: сравнительный подход, капитализация дохода, DCF,
+  затратный подход и согласование результатов.
+- Автомобили: отбор аналогов по марке, модели, году и пробегу,
+  корректировки оценщика, взвешенная медиана и средняя цена.
+- Импорт сохранённых объявлений из CSV, JSON и JSONL: русские названия
+  колонок, цены в рублях, ссылки, даты сбора и удаление дублей.
+- CSV с запятой, точкой с запятой или табуляцией; десятичная запятая.
 
-## What it is
+Сбор объявлений напрямую с ЦИАН, Avito и Drom пока не подключён.
+Сейчас используются файлы, предоставленные пользователем.
 
-- **Pure functions.** Deterministic, no network, no file I/O, no globals. Every
-  function validates its inputs and returns a JSON-serializable `dict`.
-- **Calculation layer only.** The module does not select market evidence or
-  prescribe correction factors. Those inputs must be supported by the
-  appraiser's analysis. It is not a claim that a generated result is a signed
-  valuation report.
-
-## Install
+## Установка
 
 ```bash
-pip install -e .            # engine only
-pip install -e ".[mcp]"     # engine + MCP server
-pip install -e ".[dev]"     # engine + pytest
+pip install -e .
+pip install -e ".[mcp]"
 ```
 
-## Calculations
+Первая команда устанавливает библиотеку, вторая добавляет MCP.
 
-The `dealcalc.rf` package provides:
-
-- `comparative_approach` — adjusted comparable unit prices and an indicated
-  value range;
-- `income_capitalization` — direct capitalization of annual NOI;
-- `dcf_valuation` — discounted cash flow with an explicit terminal value;
-- `cost_approach` — replacement cost with entrepreneurial profit, land, and
-  multiplicative physical/functional/external depreciation;
-- `reconcile_approaches` — weighted reconciliation of indicated values with
-  weights that must sum to 1.
+## Пример оценки автомобиля
 
 ```python
-from dealcalc.rf import income_capitalization
+from dealcalc.rf import vehicle_comparative_approach
 
-income_capitalization(1_200_000, 12)
-# {'approach': 'income', 'method': 'direct_capitalization', 'currency': 'RUB',
-#  'noi_annual': 1200000.0, 'cap_rate_pct': 12.0, 'indicated_value': 10000000.0}
+result = vehicle_comparative_approach(
+    subject={"brand": "Lada", "model": "Vesta", "year": 2021},
+    comparables=[
+        {"brand": "Lada", "model": "Vesta", "year": 2021,
+         "price_rub": 1_100_000, "weight": 2},
+        {"brand": "Lada", "model": "Vesta", "year": 2020,
+         "price_rub": 1_000_000, "adjustment_pct": 5},
+    ],
+)
+print(result["indicated_value"])  # 1100000.0
 ```
 
-### Conventions
+Это учебные данные. Корректировки и веса задаёт оценщик.
+Диапазон результата — минимум и максимум скорректированных цен аналогов.
+При ровно половине суммарного веса медиана выбирает нижнюю цену.
+Настройки отбора по умолчанию: разница до 3 лет и до 100 000 км.
+Это изменяемые параметры расчёта, а не нормативные коэффициенты.
 
-- **Amounts** are plain numbers labelled `RUB` by default; no currency
-  conversion is performed.
-- **Rates and percentages** are *percent numbers*, not decimals: `12` means 12%.
-- **Outputs** are dicts with amounts rounded to 2 decimals.
-- Invalid inputs raise `ValueError`.
+## Импорт аналогов
 
-The Russian profile is documented in [`docs/russia.md`](docs/russia.md). Its
-normative starting points are Federal Law No. 135-FZ, FSO I–VI under Order
-No. 200, FSO No. 7 for real estate, FSO No. 8 for business, and FSO No. 10 for
-machinery and vehicles.
+```python
+from dealcalc.rf import load_listings, vehicle_comparative_approach
 
-## MCP server
+analogs = load_listings("автомобили.csv", source="Avito", listing_type="vehicle")
+result = vehicle_comparative_approach(
+    {"brand": "Lada", "model": "Vesta", "year": 2021}, analogs
+)
+```
 
-The engine is exposed to AI agents over a local MCP (stdio) server. See
-[`mcp_server/README.md`](mcp_server/README.md) for setup, or in short:
+Обязательна цена (`price_rub` или `цена`). Для подбора автомобиля укажите
+марку и модель. Поддерживаются поля `adjustment_pct` / `корректировка`
+и `weight` / `вес`. Дубли определяются по источнику и идентификатору;
+если идентификатора нет, он формируется из ссылки или характеристик.
+При повторении сохраняется первая запись.
+
+## Расчёты недвижимости
+
+Из `dealcalc.rf` доступны `comparative_approach`, `income_capitalization`,
+`dcf_valuation`, `cost_approach` и `reconcile_approaches`.
+Денежные суммы российского профиля задаются в рублях, площадь — в м²,
+ставки и корректировки — в процентах: `5` означает 5%.
+Импорт недвижимости выдаёт поле `price_rub`; перед передачей в
+`comparative_approach` его следует перенести в поле `price`.
+
+Затратный подход учитывает прибыль предпринимателя, а физический,
+функциональный и внешний износ объединяет перемножением:
+`1 − (1 − Ифиз) × (1 − Ифунк) × (1 − Ивнеш)`. При согласовании сумма весов
+подходов должна быть равна 1.
+
+Методики, примеры и нормативные ссылки приведены в
+[описании российского профиля](docs/russia.md).
+Библиотека помогает подготовить расчёты; сама по себе она не формирует
+подписанный отчёт об оценке и не подтверждает его соответствие ФСО.
+Цены предложений требуют анализа и обоснования оценщиком.
+
+## Подключение к ИИ
 
 ```bash
-pip install -e ".[mcp]"
 python mcp_server/server.py
 ```
 
-## Tests
+Сервер работает локально по stdio. Порядок настройки клиента описан в
+[документации MCP](mcp_server/README.md).
+
+## Проверка
 
 ```bash
 pip install -e ".[dev]"
 pytest
 ```
 
-## License
+## Происхождение и лицензия
 
-[MIT](LICENSE). Based on dealcalc-core by dealcalcpro2026.
+Проект основан на [DealCalc Core](https://github.com/dealcalcpro2026/dealcalc-core)
+от DealCalc Pro. Американские инвестиционные калькуляторы исходного проекта
+удалены; оставлен только российский профиль. Лицензия [MIT](LICENSE),
+сведения об авторстве сохранены.

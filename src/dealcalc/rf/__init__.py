@@ -12,6 +12,8 @@ from .real_estate import (
     income_capitalization,
     reconcile_approaches,
 )
+from .data import deduplicate_listings, load_listings, normalize_listing
+from .vehicle import vehicle_comparative_approach
 
 __all__ = [
     "comparative_approach",
@@ -19,4 +21,8 @@ __all__ = [
     "dcf_valuation",
     "income_capitalization",
     "reconcile_approaches",
+    "deduplicate_listings",
+    "load_listings",
+    "normalize_listing",
+    "vehicle_comparative_approach",
 ]

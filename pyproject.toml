@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dealcalc"
 version = "0.2.0"
-description = "Pure-Python real estate calculation engine with Russian valuation aids and a local MCP server."
+description = "Расчёты стоимости недвижимости и автомобилей для оценки в РФ, импорт аналогов и MCP для ИИ."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
