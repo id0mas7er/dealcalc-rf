@@ -31,9 +31,13 @@ def rf_comparative_approach(
 ) -> dict:
     """Calculate an indicated value from adjusted comparable unit prices.
 
-    Each comparable contains price and area_sqm, with optional adjustment_pct,
-    weight, source, and date. Adjustments and weights are supplied by the
-    appraiser; the tool does not impose universal market coefficients.
+    Each comparable contains price and area_sqm, with optional adjustments,
+    weight, source, and date. adjustments is a list of {"name", "type",
+    "value"} steps applied in order to the price per m²: type "pct" is a
+    percent, "abs" is RUB per m². Put the bargaining discount first. The
+    result shows every step, net and gross adjustment, and the coefficient of
+    variation against the 33% threshold. Adjustments and weights are supplied
+    by the appraiser; the tool does not impose universal market coefficients.
     """
     return rf.comparative_approach(subject_area_sqm, comparables, currency)
 
@@ -52,9 +56,15 @@ def rf_dcf_valuation(
     discount_rate_pct: float,
     terminal_value: float = 0,
     currency: str = "RUB",
+    mid_year: bool = False,
 ) -> dict:
-    """Calculate the present value of annual cash flows and terminal value."""
-    return rf.dcf_valuation(cash_flows, discount_rate_pct, terminal_value, currency)
+    """Calculate the present value of annual cash flows and terminal value.
+
+    Cash flows are discounted at the end of each year, or at its middle when
+    mid_year is true; the terminal value at the end of the last year."""
+    return rf.dcf_valuation(
+        cash_flows, discount_rate_pct, terminal_value, currency, mid_year
+    )
 
 
 @mcp.tool()
@@ -104,8 +114,11 @@ def rf_vehicle_comparative_approach(
     """Estimate a vehicle from matched and explicitly adjusted comparables.
 
     The subject and comparables use normalized fields such as brand, model,
-    year, mileage_km, and price_rub. No automatic depreciation coefficient is
-    imposed; analyst-supplied adjustment_pct and weight are preserved.
+    year, mileage_km, and price_rub. Optional adjustments is a list of
+    {"name", "type", "value"} steps applied in order: type "pct" is a percent,
+    "abs" is RUB. Put the bargaining discount first. The result shows every
+    step, net and gross adjustment, and the coefficient of variation against
+    the 33% threshold. No automatic depreciation coefficient is imposed.
     """
     return rf.vehicle_comparative_approach(
         subject,

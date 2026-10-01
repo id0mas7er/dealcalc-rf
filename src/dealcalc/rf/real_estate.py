@@ -17,6 +17,8 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, Optional
 
+from ._adjustments import adjustment_steps, apply_adjustments, json_value, variation
+
 
 def _finite_number(name: str, value: Any) -> float:
     """Return a finite float or raise a useful validation error."""
@@ -72,13 +74,20 @@ def comparative_approach(
     """Calculate an indicated value from adjusted comparable unit prices.
 
     Each comparable must contain ``price`` and ``area_sqm``. Optional fields
-    are ``adjustment_pct`` (the total adjustment from the comparable to the
-    subject), ``weight`` (a positive analyst-supplied weight), ``source`` and
-    ``date``. The adjusted unit price is::
+    are ``adjustments``, ``weight`` (a positive analyst-supplied weight),
+    ``source`` and ``date``.
 
-        price / area_sqm * (1 + adjustment_pct / 100)
+    ``adjustments`` is a list of ``{"name", "type", "value"}`` steps applied in
+    order to the unit price ``price / area_sqm``: ``pct`` multiplies by
+    ``1 + value / 100``, ``abs`` adds ``value`` RUB per m². Put the bargaining
+    discount first. Every intermediate price is kept in the result. The legacy
+    ``adjustment_pct`` field is treated as one step.
 
-    No standard correction percentage is assumed. The adjustment and weight
+    The indicated value is the rounded weighted unit price times the subject
+    area. ``variation`` reports the coefficient of variation of adjusted unit
+    prices against the 33% homogeneity threshold.
+
+    No standard correction percentage is assumed. The adjustments and weights
     must be supported by the appraiser's market analysis.
     """
 
@@ -104,14 +113,6 @@ def comparative_approach(
         if area <= 0:
             raise ValueError(f"comparables[{index - 1}].area_sqm must be greater than 0")
 
-        adjustment_pct = _percentage(
-            f"comparables[{index - 1}].adjustment_pct",
-            comparable.get("adjustment_pct", 0),
-        )
-        if adjustment_pct <= -100:
-            raise ValueError(
-                f"comparables[{index - 1}].adjustment_pct must be greater than -100"
-            )
         weight = _finite_number(
             f"comparables[{index - 1}].weight", comparable.get("weight", 1)
         )
@@ -119,7 +120,11 @@ def comparative_approach(
             raise ValueError(f"comparables[{index - 1}].weight must be greater than 0")
 
         unit_price = price / area
-        adjusted_unit_price = unit_price * (1 + adjustment_pct / 100)
+        prefix = f"comparables[{index - 1}]"
+        adjusted = apply_adjustments(
+            unit_price, adjustment_steps(comparable, prefix), prefix
+        )
+        adjusted_unit_price = adjusted["adjusted_price"]
         total_weight += weight
         weighted_unit_sum += adjusted_unit_price * weight
 
@@ -128,23 +133,25 @@ def comparative_approach(
             "price": _round(price),
             "area_sqm": _round(area),
             "unit_price": _round(unit_price),
-            "adjustment_pct": _round(adjustment_pct),
+            "adjustments": adjusted["adjustments"],
+            "net_adjustment_pct": adjusted["net_adjustment_pct"],
+            "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
             "adjusted_unit_price": _round(adjusted_unit_price),
             "weight": _round(weight),
         }
         for key in ("source", "date"):
             if key in comparable:
-                item[key] = comparable[key]
+                item[key] = json_value(comparable[key])
         normalized.append(item)
 
-    weighted_unit_price = weighted_unit_sum / total_weight
+    weighted_unit_price = _round(weighted_unit_sum / total_weight)
     adjusted_prices = [item["adjusted_unit_price"] for item in normalized]
     return {
         "approach": "comparative",
         "currency": currency_code,
         "subject_area_sqm": _round(subject_area),
         "sample_size": len(normalized),
-        "weighted_unit_price": _round(weighted_unit_price),
+        "weighted_unit_price": weighted_unit_price,
         "indicated_value": _round(weighted_unit_price * subject_area),
         "adjusted_unit_price_min": _round(min(adjusted_prices)),
         "adjusted_unit_price_max": _round(max(adjusted_prices)),
@@ -152,6 +159,7 @@ def comparative_approach(
             "low": _round(min(adjusted_prices) * subject_area),
             "high": _round(max(adjusted_prices) * subject_area),
         },
+        "variation": variation(adjusted_prices),
         "comparables": normalized,
     }
 
@@ -187,11 +195,13 @@ def dcf_valuation(
     discount_rate_pct: float,
     terminal_value: float = 0,
     currency: str = "RUB",
+    mid_year: bool = False,
 ) -> Dict[str, Any]:
     """Calculate the present value of annual cash flows and a terminal value.
 
-    ``cash_flows[0]`` is the end-of-year-1 cash flow. The terminal value is
-    discounted at the last cash-flow period. The function does not prescribe a
+    ``cash_flows[0]`` is the year-1 cash flow, discounted at the end of the
+    year, or at its middle (period ``t - 0.5``) when ``mid_year`` is true. The
+    terminal value is discounted at the end of the last cash-flow period. The function does not prescribe a
     growth model, exit yield, or discount-rate source.
     """
 
@@ -204,12 +214,16 @@ def dcf_valuation(
     terminal = _finite_number("terminal_value", terminal_value)
     rate = discount_rate / 100
 
-    present_values = [flow / ((1 + rate) ** period) for period, flow in enumerate(flows, 1)]
+    shift = 0.5 if mid_year else 0
+    present_values = [
+        flow / ((1 + rate) ** (period - shift)) for period, flow in enumerate(flows, 1)
+    ]
     terminal_present_value = terminal / ((1 + rate) ** len(flows))
     indicated_value = sum(present_values) + terminal_present_value
     return {
         "approach": "income",
         "method": "discounted_cash_flow",
+        "discounting": "mid_year" if mid_year else "end_of_year",
         "currency": _currency(currency),
         "cash_flows": [_round(flow) for flow in flows],
         "discount_rate_pct": _round(discount_rate),

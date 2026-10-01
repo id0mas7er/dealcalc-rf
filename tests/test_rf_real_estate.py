@@ -21,7 +21,8 @@ def test_comparative_approach_preserves_adjustments_and_range():
     assert result["currency"] == "RUB"
     assert result["sample_size"] == 2
     assert result["weighted_unit_price"] == pytest.approx(203_333.33, abs=0.01)
-    assert result["indicated_value"] == pytest.approx(10_166_666.67, abs=0.01)
+    # rounded unit price 203 333.33 × 50 m²
+    assert result["indicated_value"] == 10_166_666.5
     assert result["indicated_value_range"] == {"low": 9_500_000.0, "high": 10_500_000.0}
 
 

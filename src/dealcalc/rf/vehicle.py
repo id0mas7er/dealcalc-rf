@@ -6,6 +6,8 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
+from ._adjustments import adjustment_steps, apply_adjustments, json_value, variation
+
 
 def _number(name: str, value: Any, *, allow_none: bool = False) -> Optional[float]:
     if value is None or value == "":
@@ -51,8 +53,15 @@ def vehicle_comparative_approach(
     The subject and each comparable should use the normalized fields from
     :func:`dealcalc.rf.data.normalize_listing`. Comparables are matched by
     brand/model when those fields are present, and optionally limited by year
-    and mileage differences. ``adjustment_pct`` and ``weight`` are optional
-    analyst-supplied fields on each comparable. No automatic depreciation
+    and mileage differences. ``adjustments`` and ``weight`` are optional
+    analyst-supplied fields on each comparable.
+
+    ``adjustments`` is a list of ``{"name", "type", "value"}`` steps applied in
+    order to the price: ``pct`` multiplies by ``1 + value / 100``, ``abs`` adds
+    ``value`` RUB. Put the bargaining discount first. Every intermediate price
+    is kept in the result. The legacy ``adjustment_pct`` field is treated as
+    one step. ``variation`` reports the coefficient of variation of adjusted
+    prices against the 33% homogeneity threshold. No automatic depreciation
     coefficient is imposed.
     """
 
@@ -120,32 +129,28 @@ def vehicle_comparative_approach(
             rejected += 1
             continue
 
-        adjustment_pct = _number(
-            f"comparables[{index - 1}].adjustment_pct",
-            comparable.get("adjustment_pct", 0),
-        )
-        if adjustment_pct <= -100:
-            raise ValueError(
-                f"comparables[{index - 1}].adjustment_pct must be greater than -100"
-            )
         weight = _number(
             f"comparables[{index - 1}].weight", comparable.get("weight", 1)
         )
         if weight <= 0:
             raise ValueError(f"comparables[{index - 1}].weight must be greater than 0")
 
-        adjusted_price = price * (1 + adjustment_pct / 100)
+        prefix = f"comparables[{index - 1}]"
+        adjusted = apply_adjustments(price, adjustment_steps(comparable, prefix), prefix)
+        adjusted_price = adjusted["adjusted_price"]
         weighted_items.append((adjusted_price, weight))
         item: Dict[str, Any] = {
             "index": index,
             "price_rub": round(price, 2),
-            "adjustment_pct": round(adjustment_pct, 2),
+            "adjustments": adjusted["adjustments"],
+            "net_adjustment_pct": adjusted["net_adjustment_pct"],
+            "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
             "adjusted_price_rub": round(adjusted_price, 2),
             "weight": weight,
         }
         for field in ("listing_id", "source", "url", "brand", "model", "year", "mileage_km"):
             if field in comparable and comparable[field] not in (None, ""):
-                item[field] = comparable[field]
+                item[field] = json_value(comparable[field])
         matched.append(item)
 
     if not matched:
@@ -168,6 +173,7 @@ def vehicle_comparative_approach(
             "low": round(min(adjusted_prices), 2),
             "high": round(max(adjusted_prices), 2),
         },
+        "variation": variation(adjusted_prices),
         "selection": {
             "max_year_diff": max_year_diff,
             "max_mileage_diff": max_mileage_diff,
