@@ -55,7 +55,8 @@ Then run `claude` and the tools are available.
 
 `rf_comparative_approach`, `rf_income_capitalization`, `rf_dcf_valuation`,
 `rf_cost_approach`, `rf_reconcile_approaches`,
-`rf_vehicle_comparative_approach` — 6 in total.
+`rf_vehicle_comparative_approach`, `rf_braking_coefficient`,
+`rf_new_equivalent_price` — 8 in total.
 
 ## Units
 

@@ -38,6 +38,10 @@ def rf_comparative_approach(
     result shows every step, net and gross adjustment, and the coefficient of
     variation against the 33% threshold. Adjustments and weights are supplied
     by the appraiser; the tool does not impose universal market coefficients.
+    Other step types: {"type": "param", "subject", "analog", "exponent"}
+    multiplies by (subject / analog) ** exponent (braking coefficient);
+    {"type": "depreciation", "analog_pct", "subject_pct"} multiplies by
+    (1 - subject_pct/100) / (1 - analog_pct/100) to compare wear.
     """
     return rf.comparative_approach(subject_area_sqm, comparables, currency)
 
@@ -119,6 +123,10 @@ def rf_vehicle_comparative_approach(
     "abs" is RUB. Put the bargaining discount first. The result shows every
     step, net and gross adjustment, and the coefficient of variation against
     the 33% threshold. No automatic depreciation coefficient is imposed.
+    Other step types: {"type": "param", "subject", "analog", "exponent"}
+    multiplies by (subject / analog) ** exponent (braking coefficient);
+    {"type": "depreciation", "analog_pct", "subject_pct"} multiplies by
+    (1 - subject_pct/100) / (1 - analog_pct/100) to compare wear.
     """
     return rf.vehicle_comparative_approach(
         subject,
@@ -127,6 +135,23 @@ def rf_vehicle_comparative_approach(
         max_year_diff,
         max_mileage_diff,
     )
+
+
+@mcp.tool()
+def rf_braking_coefficient(
+    price_1: float, param_1: float, price_2: float, param_2: float
+) -> dict:
+    """Braking coefficient b = ln(price_2/price_1) / ln(param_2/param_1) of a
+    parameter from two analogs that differ only in this parameter. Use it as
+    the exponent of a "param" adjustment step."""
+    return rf.braking_coefficient(price_1, param_1, price_2, param_2)
+
+
+@mcp.tool()
+def rf_new_equivalent_price(price: float, total_depreciation_pct: float) -> dict:
+    """Price a used analog would have as new:
+    price / (1 - total_depreciation_pct / 100)."""
+    return rf.new_equivalent_price(price, total_depreciation_pct)
 
 
 if __name__ == "__main__":

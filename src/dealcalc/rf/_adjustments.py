@@ -52,8 +52,16 @@ def apply_adjustments(
 ) -> Dict[str, Any]:
     """Apply adjustments sequentially and keep every intermediate price.
 
-    ``pct`` multiplies the current price by ``1 + value / 100``; ``abs`` adds
-    ``value`` in price units (RUB per m² for real estate, RUB for vehicles).
+    Step types:
+
+    * ``pct`` multiplies the current price by ``1 + value / 100``;
+    * ``abs`` adds ``value`` in price units (RUB per m² for real estate,
+      RUB for vehicles);
+    * ``param`` multiplies by ``(subject / analog) ** exponent``, where
+      ``exponent`` is the braking coefficient of the parameter;
+    * ``depreciation`` multiplies by ``(1 - subject_pct / 100) /
+      (1 - analog_pct / 100)``; with ``subject_pct = 0`` this is the
+      new-equivalent price of a used analog (formula 22).
     """
 
     price = base_price
@@ -67,32 +75,58 @@ def apply_adjustments(
         if not isinstance(name, str) or not name.strip():
             raise ValueError(f"{name_prefix}.name must be a non-empty string")
         kind = step.get("type")
-        if kind not in ("pct", "abs"):
-            raise ValueError(f"{name_prefix}.type must be 'pct' or 'abs'")
-        value = _finite(f"{name_prefix}.value", step.get("value"))
+        record: Dict[str, Any] = {"step": number, "name": name.strip(), "type": kind}
         if kind == "pct":
+            value = _finite(f"{name_prefix}.value", step.get("value"))
             if value <= -100:
                 raise ValueError(f"{name_prefix}.value must be greater than -100")
             new_price = price * (1 + value / 100)
-        else:
+            record["value"] = round(value, 2)
+        elif kind == "abs":
+            value = _finite(f"{name_prefix}.value", step.get("value"))
             new_price = price + value
-            if new_price <= 0:
-                raise ValueError(
-                    f"{name_prefix}: adjusted price must be greater than 0"
-                )
+            record["value"] = round(value, 2)
+        elif kind == "param":
+            subject = _finite(f"{name_prefix}.subject", step.get("subject"))
+            analog = _finite(f"{name_prefix}.analog", step.get("analog"))
+            exponent = _finite(f"{name_prefix}.exponent", step.get("exponent"))
+            if subject <= 0:
+                raise ValueError(f"{name_prefix}.subject must be greater than 0")
+            if analog <= 0:
+                raise ValueError(f"{name_prefix}.analog must be greater than 0")
+            factor = (subject / analog) ** exponent
+            new_price = price * factor
+            record.update(
+                subject=subject, analog=analog, exponent=exponent, factor=round(factor, 4)
+            )
+        elif kind == "depreciation":
+            analog_pct = _finite(f"{name_prefix}.analog_pct", step.get("analog_pct"))
+            subject_pct = _finite(
+                f"{name_prefix}.subject_pct", step.get("subject_pct", 0)
+            )
+            if not 0 <= analog_pct < 100:
+                raise ValueError(f"{name_prefix}.analog_pct must be in [0, 100)")
+            if not 0 <= subject_pct <= 100:
+                raise ValueError(f"{name_prefix}.subject_pct must be in [0, 100]")
+            factor = (1 - subject_pct / 100) / (1 - analog_pct / 100)
+            new_price = price * factor
+            record.update(
+                analog_pct=analog_pct, subject_pct=subject_pct, factor=round(factor, 4)
+            )
+        else:
+            raise ValueError(
+                f"{name_prefix}.type must be 'pct', 'abs', 'param' or 'depreciation'"
+            )
+        if new_price <= 0:
+            raise ValueError(f"{name_prefix}: adjusted price must be greater than 0")
         change = new_price - price
         gross_change += abs(change)
-        applied.append(
-            {
-                "step": number,
-                "name": name.strip(),
-                "type": kind,
-                "value": round(value, 2),
-                "price_before": round(price, 2),
-                "price_after": round(new_price, 2),
-                "change": round(change, 2),
-            }
+        record.update(
+            price_before=round(price, 2),
+            price_after=round(new_price, 2),
+            change=round(change, 2),
         )
+        applied.append(record)
         price = new_price
 
     return {
