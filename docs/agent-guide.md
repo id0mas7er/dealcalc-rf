@@ -120,8 +120,9 @@ codex mcp add dealcalc-rf -- PYTHON SERVER
    `included` (с НДС), `excluded` (без НДС), `not_applicable`. Передавать
    `context` в каждый расчёт стоимости.
 3. **Загрузить аналоги**, если они в файле, — `rf_load_listings` (CSV, JSON,
-   JSONL; `listing_type`: `property` или `vehicle`). Для недвижимости
-   перенести `price_rub` в поле `price` перед `rf_comparative_approach`.
+   JSONL, Excel с параметром `sheet`; `listing_type`: `property`, `vehicle`,
+   `rent` — период аренды спросить у оценщика, если его нет в файле,
+   `income`, `business`, `machinery`). Аналоги передаются в расчёт как есть.
 4. **Получить от оценщика параметры**, которые код не подставляет: скидку на
    торг и другие корректировки, ставки, веса аналогов и подходов,
    ограничения отбора автомобилей. Если оценщик их не дал — спросить, а не

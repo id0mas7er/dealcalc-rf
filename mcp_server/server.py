@@ -135,17 +135,28 @@ def rf_check_report(report: dict) -> dict:
 
 @mcp.tool()
 def rf_load_listings(
-    path: str, source: str, listing_type: str = "property", collected_at: Optional[str] = None
+    path: str,
+    source: str,
+    listing_type: str = "property",
+    collected_at: Optional[str] = None,
+    sheet: Optional[str] = None,
+    rent_period: Optional[str] = None,
 ) -> dict:
-    """Импорт сохранённых объявлений из локального файла CSV, JSON или JSONL (без сети).
+    """Импорт аналогов из локального файла CSV, JSON, JSONL или Excel (.xlsx) (без сети).
 
-    listing_type: property | vehicle. Русские названия колонок, цена в рублях,
-    адрес, дата публикации (date — дата цены), тип цены (по умолчанию «предложение»;
-    нераспознанный оставляется пустым с import_warnings), пошаговые корректировки;
-    дубли удаляются. Ошибка в строке называет её номер. Результат — аналоги для
-    сравнительного подхода. Читается любой локальный путь, доступный процессу сервера.
-    collected_at — дата сбора файла (не дата цены); без неё — текущее время."""
-    listings = rf.load_listings(path, source, listing_type, collected_at)
+    listing_type: property (продажа недвижимости) | vehicle (автомобили) | rent (аренда:
+    арендная плата или ставка за м² с площадью; период — колонка «период» или rent_period
+    month | year, без умолчания; в price_rub — годовая аренда) | income (цена с ЧОД и/или
+    валовым доходом — для rf_cap_rate_extraction и rf_gross_rent_multiplier) | business
+    (компания, стоимость value, показатель metric — для rf_business_multiples) | machinery
+    (наименование, марка, модель, год, цена, наработка). sheet — лист Excel (по умолчанию
+    первый). Русские названия колонок, цены «12 500 000 ₽» и «5 млн руб.», дата публикации
+    (date — дата цены), тип цены (по умолчанию «предложение»; нераспознанный оставляется
+    пустым с import_warnings), пошаговые корректировки; дубли удаляются. Ошибка называет
+    номер строки. Аналоги передаются в расчёты как есть (price_rub читается как цена).
+    Читается любой локальный путь, доступный процессу сервера. collected_at — дата сбора
+    файла (не дата цены); без неё — текущее время."""
+    listings = rf.load_listings(path, source, listing_type, collected_at, sheet, rent_period)
     return {"count": len(listings), "listings": listings}
 
 

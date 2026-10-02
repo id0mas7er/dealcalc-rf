@@ -1,8 +1,14 @@
 """Offline import and normalization for Russian marketplace listings.
 
-The importer reads user-provided CSV/JSON/JSONL files only. It deliberately
-does not make network requests. This makes it suitable for cached exports and
-keeps collection policy separate from valuation formulas.
+The importer reads user-provided CSV/JSON/JSONL and Excel (.xlsx) files
+only. It deliberately does not make network requests. This makes it suitable
+for cached exports and keeps collection policy separate from valuation
+formulas.
+
+Listing types: ``property`` and ``vehicle`` (sale offers), ``rent`` (rent of
+premises, annualized), ``income`` (price with NOI or gross income, for the
+capitalization rate and GRM), ``business`` (value and metric of a company,
+for multiples) and ``machinery``.
 """
 
 from __future__ import annotations
@@ -18,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
 
-LISTING_TYPES = {"property", "vehicle"}
+LISTING_TYPES = {"property", "vehicle", "rent", "income", "business", "machinery"}
 
 _ALIASES = {
     "source": ("source", "источник", "площадка", "сайт"),
@@ -56,6 +62,37 @@ _ALIASES = {
     "adjustment_pct": ("adjustment_pct", "корректировка", "корректировка %"),
     "weight": ("weight", "вес"),
     "adjustments": ("adjustments", "корректировки"),
+    # Rent.
+    "rent_rub": ("rent_rub", "rent", "арендная плата", "ставка аренды", "аренда"),
+    "rent_sqm": (
+        "rent_sqm", "ставка аренды за м2", "ставка аренды за м²", "ставка за м2", "ставка за м²",
+        "аренда за м2", "аренда за м²",
+    ),
+    "rent_period": ("rent_period", "период", "период оплаты", "период аренды"),
+    # Income properties.
+    "noi": ("noi", "чод", "чистый операционный доход"),
+    "gross_income": ("gross_income", "валовой доход", "годовой валовой доход"),
+    # Business.
+    "value": ("value", "стоимость компании", "стоимость бизнеса", "капитализация", "ev", "цена сделки"),
+    "metric": ("metric", "показатель", "значение показателя"),
+    "name": ("name", "компания", "наименование", "название"),
+    "industry": ("industry", "отрасль"),
+    # Machinery.
+    "operating_hours": ("operating_hours", "наработка", "моточасы", "наработка моточасов"),
+}
+
+_RENT_PERIODS = {
+    "month": "month", "monthly": "month", "месяц": "month", "мес": "month", "мес.": "month",
+    "в месяц": "month", "ежемесячно": "month",
+    "year": "year", "annual": "year", "год": "year", "в год": "year", "ежегодно": "year",
+}
+
+# Fields read only for a given listing type.
+_TYPE_TEXT_FIELDS = {"business": ("name", "industry"), "machinery": ("name",)}
+_TYPE_NUMBER_FIELDS = {
+    "income": ("noi", "gross_income"),
+    "business": ("value", "metric"),
+    "machinery": ("operating_hours",),
 }
 
 _TEXT_FIELDS = {
@@ -208,19 +245,28 @@ def normalize_listing(
     source: Optional[str] = None,
     listing_type: str = "property",
     collected_at: Optional[str] = None,
+    rent_period: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Normalize one marketplace row into the shared listing schema.
 
     ``date`` is the publication date of the offer (the price date);
     ``collected_at`` is when the file was collected and is not a price date.
     ``price_type`` defaults to "предложение": marketplace listings are offers.
+
+    ``rent``: the rent of the premises (``rent_rub``, or the price column) or
+    the rate per m² (``rent_sqm``, with the area) per ``rent_period``
+    (``month`` or ``year``, from the column «период» or the argument; no
+    default) becomes the annual rent in ``price_rub``. ``income`` needs
+    ``noi`` and/or ``gross_income``; ``business`` needs ``value`` (or the
+    price column) and ``metric``; ``machinery`` reads ``name`` and
+    ``operating_hours``.
     """
 
     if not isinstance(row, Mapping):
         raise ValueError("row must be an object")
     listing_kind = _text(listing_type).lower()
     if listing_kind not in LISTING_TYPES:
-        raise ValueError("listing_type must be 'property' or 'vehicle'")
+        raise ValueError(f"listing_type must be one of {', '.join(sorted(LISTING_TYPES))}")
 
     source_name = _text(source or _lookup(row, "source"))
     if source:
@@ -240,6 +286,23 @@ def normalize_listing(
         number = parse_number(_lookup(row, field), field)
         if number is not None:
             values[field] = number
+    for field in _TYPE_TEXT_FIELDS.get(listing_kind, ()):
+        values[field] = _text(_lookup(row, field))
+    for field in _TYPE_NUMBER_FIELDS.get(listing_kind, ()):
+        values[field] = parse_number(_lookup(row, field), field)
+    if listing_kind == "rent":
+        _annual_rent(row, values, rent_period)
+    if listing_kind == "business":
+        if values["value"] is None:
+            values["value"] = values["price_rub"]
+        if values["value"] is None or values["value"] <= 0:
+            raise ValueError("value (стоимость компании) must be a number greater than 0")
+        if values["metric"] is None or values["metric"] <= 0:
+            raise ValueError("metric (показатель) must be a number greater than 0")
+    if listing_kind == "income" and values["noi"] is None and values["gross_income"] is None:
+        raise ValueError("noi (ЧОД) or gross_income (валовой доход) is required for income listings")
+    if listing_kind == "machinery" and values["operating_hours"] is not None and values["operating_hours"] < 0:
+        raise ValueError("operating_hours must be non-negative")
     # A row normalized earlier keeps its warnings; an unknown price type
     # marked then stays empty instead of becoming an offer.
     previous = row.get("import_warnings")
@@ -262,7 +325,7 @@ def normalize_listing(
     elif not values["collected_at"]:
         values["collected_at"] = _default_collected_at()
 
-    if values["price_rub"] is None or values["price_rub"] <= 0:
+    if listing_kind != "business" and (values["price_rub"] is None or values["price_rub"] <= 0):
         raise ValueError("price_rub must be a number greater than 0")
     if values["area_sqm"] is not None and values["area_sqm"] <= 0:
         raise ValueError("area_sqm must be greater than 0 when provided")
@@ -284,10 +347,11 @@ def normalize_listing(
         else:
             basis = "characteristics"
             stable_fields = tuple(
-                values[field]
+                values.get(field)
                 for field in (
                     "source", "listing_type", "price_rub", "area_sqm", "address", "city",
                     "rooms", "floor", "total_floors", "year", "brand", "model", "mileage_km",
+                    "name", "value", "metric", "operating_hours",
                 )
             )
         seed = "|".join("" if item is None else str(item) for item in stable_fields)
@@ -295,6 +359,33 @@ def normalize_listing(
         values["listing_id_basis"] = basis
 
     return values
+
+
+def _annual_rent(row: Mapping[str, Any], values: Dict[str, Any], rent_period: Optional[str]) -> None:
+    """Annual rent of the premises into ``price_rub``; the period is never assumed."""
+
+    amount = parse_number(_lookup(row, "rent_rub"), "rent_rub")
+    if amount is None:
+        amount = values["price_rub"]
+    rate = parse_number(_lookup(row, "rent_sqm"), "rent_sqm")
+    raw_period = _text(_lookup(row, "rent_period")) or _text(rent_period)
+    period = _RENT_PERIODS.get(raw_period.lower())
+    if period is None:
+        raise ValueError(
+            "rent_period must be 'month' or 'year' (column «период» or the rent_period argument)"
+        )
+    if amount is None and rate is None:
+        raise ValueError("rent_rub (арендная плата) or rent_sqm (ставка за м²) is required for rent listings")
+    if amount is None:
+        if values["area_sqm"] is None:
+            raise ValueError("area_sqm is required with rent_sqm")
+        amount = rate * values["area_sqm"]
+    if amount <= 0:
+        raise ValueError("rent must be greater than 0")
+    values["rent_rub"] = amount
+    values["rent_sqm"] = rate
+    values["rent_period"] = period
+    values["price_rub"] = amount * (12 if period == "month" else 1)
 
 
 def deduplicate_listings(listings: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
@@ -359,13 +450,55 @@ def _csv_rows(path: Path) -> Iterable[Tuple[str, Mapping[str, Any]]]:
             yield f"line {reader.line_num}", row
 
 
+def _xlsx_rows(path: Path, sheet: Optional[str]) -> Iterable[Tuple[str, Mapping[str, Any]]]:
+    """Rows of an Excel sheet; the header is the first non-empty row."""
+
+    try:
+        import openpyxl
+    except ImportError as exc:  # pragma: no cover - dependency of the package
+        raise ValueError("reading .xlsx needs the openpyxl package") from exc
+    workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    try:
+        if sheet is None:
+            worksheet = workbook.worksheets[0]
+        elif sheet in workbook.sheetnames:
+            worksheet = workbook[sheet]
+        else:
+            raise ValueError(f"sheet «{sheet}» not found; sheets: {', '.join(workbook.sheetnames)}")
+        header: Optional[List[str]] = None
+        for number, cells in enumerate(worksheet.iter_rows(values_only=True), start=1):
+            if all(cell in (None, "") for cell in cells):
+                continue
+            if header is None:
+                header = ["" if cell is None else str(cell).strip() for cell in cells]
+                continue
+            row = {}
+            for key, cell in zip(header, cells):
+                if not key:
+                    continue
+                if isinstance(cell, datetime):
+                    cell = cell.date().isoformat() if cell.time() == datetime.min.time() else cell.isoformat()
+                row[key] = cell
+            yield f"row {number}", row
+        if header is None:
+            raise ValueError("the sheet must contain a header row")
+    finally:
+        workbook.close()
+
+
 def load_listings(
     path: str,
     source: str,
     listing_type: str = "property",
     collected_at: Optional[str] = None,
+    sheet: Optional[str] = None,
+    rent_period: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Load and normalize a local CSV, JSON, or JSONL export.
+    """Load and normalize a local CSV, JSON, JSONL or Excel (.xlsx) export.
+
+    ``sheet`` names the Excel sheet (the first one by default); the header is
+    the first non-empty row. ``rent_period`` applies to ``rent`` listings
+    without a period column.
 
     No network request is made. Duplicate source/listing_id rows are removed
     while preserving the first occurrence. An invalid row stops the import
@@ -382,13 +515,15 @@ def load_listings(
         rows = _json_rows(input_path)
     elif suffix == ".jsonl":
         rows = _jsonl_rows(input_path)
+    elif suffix in (".xlsx", ".xlsm"):
+        rows = _xlsx_rows(input_path, sheet)
     else:
-        raise ValueError("supported input formats are .csv, .json, and .jsonl")
+        raise ValueError("supported input formats are .csv, .json, .jsonl and .xlsx")
 
     normalized = []
     for label, row in rows:
         try:
-            normalized.append(normalize_listing(row, source, listing_type, collected_at))
+            normalized.append(normalize_listing(row, source, listing_type, collected_at, rent_period))
         except ValueError as exc:
             raise ValueError(f"{label}: {exc}") from exc
     return deduplicate_listings(normalized)

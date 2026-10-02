@@ -151,7 +151,9 @@ def comparative_approach(
         if not isinstance(comparable, Mapping):
             raise ValueError(f"comparables[{index - 1}] must be an object")
 
-        price = _finite_number(f"comparables[{index - 1}].price", comparable.get("price"))
+        price = _finite_number(
+            f"comparables[{index - 1}].price", comparable.get("price", comparable.get("price_rub"))
+        )
         if price <= 0:
             raise ValueError(f"comparables[{index - 1}].price must be greater than 0")
         area = _finite_number(
@@ -382,7 +384,7 @@ def cap_rate_extraction(
         prefix = f"comparables[{index}]"
         if not isinstance(comparable, Mapping):
             raise ValueError(f"{prefix} must be an object")
-        price = _finite_number(f"{prefix}.price", comparable.get("price"))
+        price = _finite_number(f"{prefix}.price", comparable.get("price", comparable.get("price_rub")))
         if price <= 0:
             raise ValueError(f"{prefix}.price must be greater than 0")
         noi = _finite_number(f"{prefix}.noi", comparable.get("noi"))
@@ -451,7 +453,7 @@ def gross_rent_multiplier(
         prefix = f"comparables[{index}]"
         if not isinstance(comparable, Mapping):
             raise ValueError(f"{prefix} must be an object")
-        price = _finite_number(f"{prefix}.price", comparable.get("price"))
+        price = _finite_number(f"{prefix}.price", comparable.get("price", comparable.get("price_rub")))
         if price <= 0:
             raise ValueError(f"{prefix}.price must be greater than 0")
         income = _finite_number(f"{prefix}.gross_income", comparable.get("gross_income"))

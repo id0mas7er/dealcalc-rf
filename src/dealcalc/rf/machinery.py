@@ -476,7 +476,7 @@ def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, A
         prefix = f"analogs[{index}]"
         if not isinstance(analog, Mapping):
             raise ValueError(f"{prefix} must be an object")
-        price = _positive(f"{prefix}.price", analog.get("price"))
+        price = _positive(f"{prefix}.price", analog.get("price", analog.get("price_rub")))
         steps = analog.get("adjustments") or []
         if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)):
             raise ValueError(f"{prefix}.adjustments must be a list")
