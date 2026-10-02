@@ -68,7 +68,9 @@ def test_cellular_site_rent():
 
 
 def test_external_obsolescence_cost_income():
-    result = external_obsolescence_cost_income(1_000_000, 800_000)
+    result = external_obsolescence_cost_income(
+        1_000_000, 800_000, confirmed_conditions=["same_property", "only_external_factor"]
+    )
 
     assert result["external_obsolescence"] == 200_000.0
     assert result["external_obsolescence_pct"] == 20.0
@@ -83,12 +85,14 @@ def test_external_obsolescence_negative_is_not_forced():
 
 
 def test_external_obsolescence_paired_sales():
-    result = external_obsolescence_paired_sales(500, 400, 1_000_000)
+    result = external_obsolescence_paired_sales(
+        500, 400, 1_000_000, confirmed_conditions=["isolated_external_factor"]
+    )
 
     assert result["obsolescence_ratio_pct"] == 20.0
     assert result["external_obsolescence"] == 200_000.0
     assert result["status"] == "черновой расчёт"
-    assert "изолирует" in result["guardrails"][0]
+    assert result["required_conditions"][0]["confirmed"] is True
 
 
 def test_external_obsolescence_lost_income():

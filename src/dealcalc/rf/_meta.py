@@ -242,6 +242,84 @@ def _weighting_guardrails(result: Mapping[str, Any]) -> List[str]:
     ]
 
 
+_FLOW_RATE_FIELDS = {
+    "price_level": ("nominal", "real"),
+    "tax": ("pre_tax", "post_tax"),
+    "currency": None,
+}
+_FLOW_RATE_LABELS = {"price_level": "уровню цен", "tax": "налогам", "currency": "валюте"}
+
+
+def validate_flow_rate_basis(value: Any) -> Optional[Dict[str, Dict[str, str]]]:
+    """Validate the basis of the cash flow and of the rate:
+    ``{"flow": {...}, "rate": {...}}`` with ``price_level`` (nominal | real),
+    ``tax`` (pre_tax | post_tax) and ``currency``."""
+
+    if value is None:
+        return None
+    if not isinstance(value, Mapping) or set(value) - {"flow", "rate"}:
+        raise ValueError("flow_rate_basis must be an object with 'flow' and 'rate'")
+    result: Dict[str, Dict[str, str]] = {}
+    for side in ("flow", "rate"):
+        part = value.get(side) or {}
+        if not isinstance(part, Mapping) or set(part) - set(_FLOW_RATE_FIELDS):
+            raise ValueError(f"flow_rate_basis.{side} may hold price_level, tax and currency")
+        normalized = {}
+        for key, allowed in _FLOW_RATE_FIELDS.items():
+            item = part.get(key)
+            if item in (None, ""):
+                continue
+            item = str(item).strip()
+            if allowed and item not in allowed:
+                raise ValueError(f"flow_rate_basis.{side}.{key} must be one of {', '.join(allowed)}")
+            normalized[key] = item.upper() if key == "currency" else item
+        result[side] = normalized
+    return result
+
+
+def _flow_rate_review(basis: Optional[Mapping[str, Mapping[str, str]]]) -> tuple:
+    """Checks for a flow and a rate on different bases; a reminder when the
+    basis is not described (ФСО V, п. 15: the rate matches the flow)."""
+
+    reminder = (
+        "Не описана база потока и ставки (flow_rate_basis: номинальная или реальная, до или "
+        "после налогов, валюта): ставка должна соответствовать потоку."
+    )
+    if basis is None:
+        return [], [reminder]
+    checks = []
+    incomplete = False
+    for key, label in _FLOW_RATE_LABELS.items():
+        flow, rate = basis["flow"].get(key), basis["rate"].get(key)
+        if flow and rate and flow != rate:
+            checks.append(f"Поток и ставка различаются по {label}: поток — {flow}, ставка — {rate}.")
+        elif not (flow and rate):
+            incomplete = True
+    return checks, [reminder] if incomplete else []
+
+
+def _condition_review(
+    required: Mapping[str, str], confirmed: Any
+) -> tuple:
+    """Conditions of a private model confirmed by the appraiser."""
+
+    if confirmed is None:
+        confirmed = []
+    if isinstance(confirmed, (str, bytes)) or not isinstance(confirmed, Sequence):
+        raise ValueError("confirmed_conditions must be a list of condition ids")
+    unknown = set(confirmed) - set(required)
+    if unknown:
+        raise ValueError(f"confirmed_conditions has unknown ids {sorted(unknown)}; known: {sorted(required)}")
+    items = [{"id": key, "text": text, "confirmed": key in confirmed} for key, text in required.items()]
+    missing = [f"{item['id']} — {item['text']}" for item in items if not item["confirmed"]]
+    checks = (
+        [f"Не подтверждены условия применения модели (confirmed_conditions): {'; '.join(missing)}."]
+        if missing
+        else []
+    )
+    return items, checks
+
+
 def method_card(
     method_id: str,
     standard: str,
@@ -249,6 +327,8 @@ def method_card(
     formula_status: str,
     source_url: str = "",
     context_reminder: bool = True,
+    income_model: bool = False,
+    required_conditions: Optional[Mapping[str, str]] = None,
 ) -> Callable[[Callable[..., Dict[str, Any]]], Callable[..., Dict[str, Any]]]:
     """Wrap a calculation result into the common envelope.
 
@@ -260,12 +340,29 @@ def method_card(
     missing context is reminded only where ``context_reminder`` is true —
     calculations returning a value, not auxiliary rates and coefficients. A
     result field ``vat_pct`` is checked against the context VAT treatment.
+
+    Income models (``income_model``) also accept ``flow_rate_basis``: the
+    basis of the flow and of the rate, checked for consistency. Private
+    models with ``required_conditions`` accept ``confirmed_conditions`` — the
+    ids of the conditions of application confirmed by the appraiser; an
+    unconfirmed condition is a check.
     """
 
     def decorate(func: Callable[..., Dict[str, Any]]) -> Callable[..., Dict[str, Any]]:
         @functools.wraps(func)
-        def wrapper(*args: Any, context: Any = None, **kwargs: Any) -> Dict[str, Any]:
+        def wrapper(
+            *args: Any,
+            context: Any = None,
+            flow_rate_basis: Any = None,
+            confirmed_conditions: Any = None,
+            **kwargs: Any,
+        ) -> Dict[str, Any]:
             assignment = assignment_context(context)
+            if flow_rate_basis is not None and not income_model:
+                raise ValueError("flow_rate_basis applies only to income models")
+            if confirmed_conditions is not None and not required_conditions:
+                raise ValueError("this calculation has no conditions to confirm")
+            basis = validate_flow_rate_basis(flow_rate_basis) if income_model else None
             result = dict(func(*args, **kwargs))
             checks = list(result.pop("checks", [])) + _vat_checks(assignment, result)
             checks += _later_price_checks(assignment, result) + _kind_checks(assignment, result)
@@ -276,6 +373,15 @@ def method_card(
             guardrails += _weighting_guardrails(result)
             if context_reminder:
                 guardrails += _context_guardrails(assignment)
+            if income_model:
+                basis_checks, basis_guardrails = _flow_rate_review(basis)
+                checks += basis_checks
+                guardrails += basis_guardrails
+                result["flow_rate_basis"] = basis
+            if required_conditions:
+                items, condition_checks = _condition_review(required_conditions, confirmed_conditions)
+                checks += condition_checks
+                result["required_conditions"] = items
             status = result.pop("status", None) or (STATUS_REVIEW if checks else STATUS_DRAFT)
             card = {
                 "id": method_id,

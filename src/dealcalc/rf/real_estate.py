@@ -221,6 +221,7 @@ def comparative_approach(
     "V = I_1 / R",
     FORMULA_NORM,
     source_url="https://srosovet.ru/activities/npa/fso-v/",
+    income_model=True,
 )
 def income_capitalization(
     noi_annual: float,
@@ -495,6 +496,7 @@ def gross_rent_multiplier(
     "V0 = Σ CF_t / (1 + r)^t + TV_n / (1 + r)^n",
     "математическая реализация требования ФСО V приводить потоки к дате оценки; прогноз и ставка стандартом не установлены",
     source_url="https://srosovet.ru/activities/npa/fso-v/",
+    income_model=True,
 )
 def dcf_valuation(
     cash_flows: Sequence[float],
@@ -558,6 +560,10 @@ def dcf_valuation(
         "present_value_cash_flows": _round(sum(present_values)),
         "terminal_present_value": _round(terminal_present_value),
         "indicated_value": _round(indicated_value),
+        "guardrails": [
+            "Поток ДДП — денежный: при капитальных вложениях и других денежных расходах он не "
+            "равен ЧОД."
+        ],
     }
 
 

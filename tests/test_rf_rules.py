@@ -181,7 +181,10 @@ def test_assignment_rejects_unknown_object_type():
 
 
 def test_every_result_has_uniform_keys():
-    result = income_capitalization(1_200_000, 12, context=CONTEXT)
+    basis = {"price_level": "nominal", "tax": "post_tax", "currency": "RUB"}
+    result = income_capitalization(
+        1_200_000, 12, context=CONTEXT, flow_rate_basis={"flow": basis, "rate": basis}
+    )
 
     assert result["conditions"] == []
     assert result["guardrails"] == []

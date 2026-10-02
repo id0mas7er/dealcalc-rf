@@ -90,6 +90,7 @@ def _named_amounts(items: Any, name: str) -> List[Dict[str, Any]]:
     "Equity = PV(FCFE) + НА − НО; Equity = PV(FCFF при WACC) − обязательства вне потока + НА − НО",
     FORMULA_TECHNICAL,
     source_url="https://srosovet.ru/activities/npa/fso8/",
+    income_model=True,
 )
 def business_income_approach(
     cash_flows: Sequence[float],

@@ -14,6 +14,7 @@ import server  # noqa: E402
 
 EXPECTED_TOOLS = {
     "rf_check_assignment",
+    "rf_check_report",
     "rf_load_listings",
     "rf_comparative_approach",
     "rf_net_operating_income",
@@ -108,4 +109,19 @@ def test_context_is_passed_through_the_tool():
     )
 
     assert result["context"]["valuation_date"] == "2026-10-01"
-    assert result["guardrails"] == []
+    assert not any("параметр context" in note for note in result["guardrails"])
+
+
+def test_flow_rate_basis_and_conditions_pass_through_tools():
+    basis = {"price_level": "nominal", "tax": "post_tax", "currency": "RUB"}
+    income = _call(
+        "rf_income_capitalization",
+        {"noi_annual": 1_200_000, "cap_rate_pct": 12, "flow_rate_basis": {"flow": {**basis, "price_level": "real"}, "rate": basis}},
+    )
+    rent = _call(
+        "rf_market_rent_cost_plus",
+        {"property_value": 10_000_000, "cap_rate_pct": 10, "confirmed_conditions": ["no_comparable_rents"]},
+    )
+
+    assert any("уровню цен" in check for check in income["checks"])
+    assert [item["confirmed"] for item in rent["required_conditions"]] == [True, False, False]

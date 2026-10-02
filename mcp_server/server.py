@@ -16,7 +16,7 @@ from dealcalc import rf
 
 # Sent to the agent when it connects; the full guide is docs/agent-guide.md.
 AGENT_INSTRUCTIONS = """\
-DealCalc RF — расчёты для оценки в РФ (ФСО I–V, №7, №8, №10, рекомендации «СРОО
+DealCalc RF — расчёты для оценки в РФ (ФСО I–VI, №7, №8, №10, рекомендации «СРОО
 Экспертный совет»). Результат любого инструмента — черновик для оценщика, не
 итоговая стоимость и не отчёт.
 
@@ -35,6 +35,9 @@ DealCalc RF — расчёты для оценки в РФ (ФСО I–V, №7, 
 6. Докладывать стоимость, status дословно, все checks (дефекты данных) и все
    guardrails (что обосновать), стандарт и формулу из method_card. Числа не
    пересчитывать вручную.
+7. В доходных расчётах описывать flow_rate_basis; у моделей СРО условия
+   применения (confirmed_conditions) подтверждает только оценщик.
+8. Перед подписанием отчёта — rf_check_report (ФСО VI) с расчётами в approaches.
 
 Проценты задаются числами: 5 означает 5 %. Суммы в рублях, площадь в м².
 Ошибка инструмента — неверный вход: прочитать текст и исправить данные.
@@ -56,10 +59,37 @@ CONTEXT_NOTE = (
 )
 
 
-def tool(func: Callable[..., Any]) -> Callable[..., Any]:
-    """Register a calculation tool; its description gets the context note."""
+FLOW_RATE_NOTE = (
+    "\n\nflow_rate_basis (необязательно): {flow: {price_level: nominal | real, tax: pre_tax | "
+    "post_tax, currency}, rate: {...}} — база потока и ставки; несовпадение — замечание, "
+    "без описания — напоминание (ФСО V)."
+)
 
-    return mcp.tool(description=(func.__doc__ or "").strip() + CONTEXT_NOTE)(func)
+# Conditions of application of the Expert Council models, by tool.
+TOOL_CONDITIONS = {
+    "rf_market_rent_cost_plus": rf.special.MARKET_RENT_CONDITIONS,
+    "rf_cellular_site_rent": rf.special.CELLULAR_SITE_CONDITIONS,
+    "rf_external_obsolescence_cost_income": rf.special.COST_INCOME_CONDITIONS,
+    "rf_external_obsolescence_paired_sales": rf.special.PAIRED_SALES_CONDITIONS,
+    "rf_external_obsolescence_lost_income": rf.special.LOST_INCOME_CONDITIONS,
+    "rf_fund_unit_value": rf.special.FUND_UNIT_CONDITIONS,
+}
+
+
+def tool(func: Callable[..., Any]) -> Callable[..., Any]:
+    """Register a calculation tool; its description gets the context note,
+    the flow–rate note of income models and the conditions of private models."""
+
+    description = (func.__doc__ or "").strip() + CONTEXT_NOTE
+    if func.__name__ in TOOL_CONDITIONS:
+        items = "; ".join(f"{key} — {text}" for key, text in TOOL_CONDITIONS[func.__name__].items())
+        description += (
+            "\n\nconfirmed_conditions — id условий применения, подтверждённых оценщиком "
+            f"(неподтверждённое условие — замечание): {items}."
+        )
+    if "flow_rate_basis" in func.__code__.co_varnames:
+        description += FLOW_RATE_NOTE
+    return mcp.tool(description=description)(func)
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +108,25 @@ def rf_check_assignment(assignment: dict) -> dict:
     «недостаточно данных» и перечень пробелов; также признаки применимости подходов
     и условия остановки расчёта."""
     return rf.check_assignment(assignment)
+
+
+@mcp.tool()
+def rf_check_report(report: dict) -> dict:
+    """Проверка отчёта об оценке перед подписанием (ФСО VI, пп. 3–8): всё ли есть.
+
+    report: report_number, report_date (ГГГГ-ММ-ДД), basis, assignment (как в
+    rf_check_assignment), appraisers [{full_name, phone, postal_address, email,
+    sro_registry_number, sro_name, sro_address}], customer ({full_name} или {name, ogrn,
+    address}), employer {name, ogrn, address} или private_practice: true, independence,
+    engaged_specialists (пустой список — их нет), standards, methodical_recommendations или
+    recommendations_not_used_reason, object {description, rights}, assumptions,
+    market_analysis, approaches {selection_justification, rejected, rejected_comment,
+    calculations — результаты расчётов}, final_value (число), limits_of_use, documents,
+    sources [{url или reference, date}], signing {form: paper | electronic, confirmed: [...]}:
+    paper — pages_numbered, bound, signed, sealed; electronic — appraiser_qualified_signature,
+    employer_signature. Результат: missing (с пунктами ФСО VI), can_issue, checks (расчёты
+    со статусом не «черновой расчёт», расхождение контекста, источники без даты)."""
+    return rf.check_report(report)
 
 
 @mcp.tool()
@@ -167,10 +216,17 @@ def rf_cap_rate_extraction(comparables: List[dict], context: Optional[dict] = No
 
 @tool
 def rf_income_capitalization(
-    noi_annual: float, cap_rate_pct: float, currency: str = "RUB", context: Optional[dict] = None
+    noi_annual: float, cap_rate_pct: float, currency: str = "RUB", flow_rate_basis: Optional[dict] = None,
+    context: Optional[dict] = None
 ) -> dict:
     """Прямая капитализация (ФСО V, п. 14): стоимость = годовой ЧОД / ставка капитализации."""
-    return rf.income_capitalization(noi_annual, cap_rate_pct, currency, context=context)
+    return rf.income_capitalization(
+        noi_annual,
+        cap_rate_pct,
+        currency,
+        flow_rate_basis=flow_rate_basis,
+        context=context,
+    )
 
 
 @tool
@@ -197,6 +253,7 @@ def rf_dcf_valuation(
     mid_year: bool = False,
     terminal_timing: str = "end",
     first_cash_flow_period: int = 1,
+    flow_rate_basis: Optional[dict] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Дисконтирование денежных потоков (ФСО V, п. 15).
@@ -214,18 +271,28 @@ def rf_dcf_valuation(
         mid_year,
         terminal_timing,
         first_cash_flow_period,
-        context=context,
+        flow_rate_basis=flow_rate_basis, context=context,
     )
 
 
 @tool
 def rf_gordon_terminal_value(
-    cash_flow_next: float, discount_rate_pct: float, growth_rate_pct: float, context: Optional[dict] = None
+    cash_flow_next: float,
+    discount_rate_pct: float,
+    growth_rate_pct: float,
+    flow_rate_basis: Optional[dict] = None,
+    context: Optional[dict] = None,
 ) -> dict:
     """Постпрогнозная стоимость по модели Гордона (ФСО V, п. 21): TV = CF(n+1) / (r − g).
 
     Требует r > g, устойчивый поток и длительный или неограниченный срок использования."""
-    return rf.gordon_terminal_value(cash_flow_next, discount_rate_pct, growth_rate_pct, context=context)
+    return rf.gordon_terminal_value(
+        cash_flow_next,
+        discount_rate_pct,
+        growth_rate_pct,
+        flow_rate_basis=flow_rate_basis,
+        context=context,
+    )
 
 
 @tool
@@ -233,12 +300,19 @@ def rf_reversion_value(
     noi_next_year: float,
     terminal_cap_rate_pct: float,
     selling_costs_pct: float = 0,
+    flow_rate_basis: Optional[dict] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Стоимость реверсии: ЧОД года n + 1 / терминальная ставка капитализации × (1 − расходы на продажу).
 
     Результат используется как terminal_value в rf_dcf_valuation."""
-    return rf.reversion_value(noi_next_year, terminal_cap_rate_pct, selling_costs_pct, context=context)
+    return rf.reversion_value(
+        noi_next_year,
+        terminal_cap_rate_pct,
+        selling_costs_pct,
+        flow_rate_basis=flow_rate_basis,
+        context=context,
+    )
 
 
 @tool
@@ -278,11 +352,16 @@ def rf_capital_recovery_rate(
 
 
 @tool
-def rf_npv(cash_flows: List[float], discount_rate_pct: float, context: Optional[dict] = None) -> dict:
+def rf_npv(
+    cash_flows: List[float],
+    discount_rate_pct: float,
+    flow_rate_basis: Optional[dict] = None,
+    context: Optional[dict] = None,
+) -> dict:
     """Чистая приведённая стоимость. cash_flows[0] — поток ПЕРИОДА 0 (обычно вложения, не дисконтируется).
 
     Показываются коэффициент дисконтирования и приведённая стоимость каждого периода."""
-    return rf.npv(cash_flows, discount_rate_pct, context=context)
+    return rf.npv(cash_flows, discount_rate_pct, flow_rate_basis=flow_rate_basis, context=context)
 
 
 @tool
@@ -589,6 +668,7 @@ def rf_business_income_approach(
     non_operating_liabilities: float = 0,
     currency: str = "RUB",
     terminal_timing: str = "end",
+    flow_rate_basis: Optional[dict] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Доходный подход к бизнесу (ФСО №8, п. 9): 100% собственного капитала.
@@ -610,7 +690,7 @@ def rf_business_income_approach(
         non_operating_liabilities,
         currency,
         terminal_timing,
-        context=context,
+        flow_rate_basis=flow_rate_basis, context=context,
     )
 
 
@@ -725,6 +805,7 @@ def rf_market_rent_cost_plus(
     collection_loss_pct: float = 0,
     rentable_area_sqm: Optional[float] = None,
     currency: str = "RUB",
+    confirmed_conditions: Optional[List[str]] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Рыночная арендная плата методом компенсации затрат (МРз–1/26).
@@ -740,7 +821,7 @@ def rf_market_rent_cost_plus(
         collection_loss_pct,
         rentable_area_sqm,
         currency,
-        context=context,
+        confirmed_conditions=confirmed_conditions, context=context,
     )
 
 
@@ -752,6 +833,7 @@ def rf_cellular_site_rent(
     owner_costs_annual: float = 0,
     collection_loss_pct: float = 0,
     currency: str = "RUB",
+    confirmed_conditions: Optional[List[str]] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Аренда места под стандартный комплект оборудования сотовой связи (МР–3/26 (2), § 9.4).
@@ -765,7 +847,7 @@ def rf_cellular_site_rent(
         owner_costs_annual,
         collection_loss_pct,
         currency,
-        context=context,
+        confirmed_conditions=confirmed_conditions, context=context,
     )
 
 
@@ -775,6 +857,7 @@ def rf_external_obsolescence_cost_income(
     income_value_with_external: float,
     currency: str = "RUB",
     land_value: float = 0,
+    confirmed_conditions: Optional[List[str]] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Внешнее обесценение (МРз–8/23-2, § 4.1): затратная стоимость без фактора − доходная с ним.
@@ -784,7 +867,12 @@ def rf_external_obsolescence_cost_income(
     затратной стоимости; при land_value возвращается и процент от улучшений
     (external_obsolescence_pct_of_improvements) — его, или рубли, передавайте в rf_cost_approach."""
     return rf.external_obsolescence_cost_income(
-        cost_value_without_external, income_value_with_external, currency, land_value, context=context
+        cost_value_without_external,
+        income_value_with_external,
+        currency,
+        land_value,
+        confirmed_conditions=confirmed_conditions,
+        context=context,
     )
 
 
@@ -794,11 +882,17 @@ def rf_external_obsolescence_paired_sales(
     value_with_impact: float,
     base_value: float,
     currency: str = "RUB",
+    confirmed_conditions: Optional[List[str]] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Внешнее обесценение по паре продаж (МРз–8/23-2, § 4.2): доля = 1 − с фактором / без фактора, × база."""
     return rf.external_obsolescence_paired_sales(
-        value_without_impact, value_with_impact, base_value, currency, context=context
+        value_without_impact,
+        value_with_impact,
+        base_value,
+        currency,
+        confirmed_conditions=confirmed_conditions,
+        context=context,
     )
 
 
@@ -809,13 +903,22 @@ def rf_external_obsolescence_lost_income(
     discount_rate_pct: float,
     cost_value: Optional[float] = None,
     currency: str = "RUB",
+    flow_rate_basis: Optional[dict] = None,
+    confirmed_conditions: Optional[List[str]] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Внешнее обесценение по приведённым потерям дохода (МРз–8/23-2, § 4.3), годы 1..n.
 
     При cost_value — также в процентах от затратной стоимости."""
     return rf.external_obsolescence_lost_income(
-        cash_flows_without, cash_flows_with, discount_rate_pct, cost_value, currency, context=context
+        cash_flows_without,
+        cash_flows_with,
+        discount_rate_pct,
+        cost_value,
+        currency,
+        flow_rate_basis=flow_rate_basis,
+        confirmed_conditions=confirmed_conditions,
+        context=context,
     )
 
 
@@ -827,6 +930,8 @@ def rf_fund_unit_value(
     termination_costs: float = 0,
     final_period: Optional[float] = None,
     currency: str = "RUB",
+    flow_rate_basis: Optional[dict] = None,
+    confirmed_conditions: Optional[List[str]] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Доходная модель инвестиционного пая ПИФ (МРз–5/23).
@@ -834,7 +939,15 @@ def rf_fund_unit_value(
     Приведённые чистые выплаты на пай (годы 1..n) плюс приведённая финальная
     компенсация за вычетом расходов прекращения; отдельной терминальной стоимости нет."""
     return rf.fund_unit_value(
-        distributions, final_compensation, discount_rate_pct, termination_costs, final_period, currency, context=context
+        distributions,
+        final_compensation,
+        discount_rate_pct,
+        termination_costs,
+        final_period,
+        currency,
+        flow_rate_basis=flow_rate_basis,
+        confirmed_conditions=confirmed_conditions,
+        context=context,
     )
 
 

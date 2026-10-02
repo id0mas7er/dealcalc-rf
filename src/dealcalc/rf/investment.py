@@ -30,7 +30,7 @@ def _flows(cash_flows: Sequence[Any]) -> List[float]:
 
 
 @method_card("NPV", 'ФСО V, п. 15', "NPV = Σ CF_t / (1 + r)^t, t = 0..n", FORMULA_TECHNICAL,
-    source_url="https://srosovet.ru/activities/npa/fso-v/")
+    source_url="https://srosovet.ru/activities/npa/fso-v/", income_model=True)
 def npv(cash_flows: Sequence[float], discount_rate_pct: float) -> Dict[str, Any]:
     """Net present value of annual cash flows.
 
@@ -122,6 +122,7 @@ def _rate(name: str, value: Any) -> float:
     "TV_n = CF_(n+1) / (r − g)",
     "частная модель постоянного роста; условия применения — ФСО V, п. 21, параметры не заданы",
     source_url="https://srosovet.ru/activities/npa/fso-v/",
+    income_model=True,
 )
 def gordon_terminal_value(
     cash_flow_next: float, discount_rate_pct: float, growth_rate_pct: float
@@ -207,6 +208,7 @@ def asset_liquidation_value(
     factor = (1 + rate / 100) ** (-(typical - forced) / 12)
     total_factor = factor * (1 - (forced_discount or 0) / 100)
     discounted = value * total_factor
+    # Price of the forced sale and net proceeds after its specific costs.
     liquidation = discounted - costs
     checks = []
     guardrails = [
@@ -232,6 +234,7 @@ def asset_liquidation_value(
         "forced_sale_discount_pct": None if forced_discount is None else money(forced_discount),
         "forced_sale_justification": justification,
         "total_discount_pct": money((1 - total_factor) * 100),
+        "liquidation_price": money(discounted),
         "additional_costs": money(costs),
         "liquidation_value": money(liquidation),
         "guardrails": guardrails,
@@ -389,6 +392,7 @@ def capital_recovery_rate(
     "V_рев = ЧОД_(n+1) / R_терм × (1 − расходы на продажу)",
     FORMULA_TECHNICAL,
     source_url="https://srosovet.ru/activities/npa/fso7/",
+    income_model=True,
 )
 def reversion_value(
     noi_next_year: float,

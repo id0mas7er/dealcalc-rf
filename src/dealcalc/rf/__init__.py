@@ -18,6 +18,7 @@ from .real_estate import (
 )
 from .data import deduplicate_listings, load_listings, normalize_listing
 from .assignment import check_assignment
+from .report import check_report
 from .business import (
     actual_share_value,
     business_income_approach,
@@ -74,6 +75,7 @@ __all__ = [
     "capital_recovery_rate",
     "reversion_value",
     "check_assignment",
+    "check_report",
     "business_income_approach",
     "business_multiples",
     "net_assets",

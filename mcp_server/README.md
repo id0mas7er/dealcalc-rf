@@ -57,9 +57,10 @@ codex mcp add dealcalc-rf -- python /absolute/path/to/dealcalc-rf/mcp_server/ser
 сценариями по видам объектов и разбором полей результата —
 [docs/agent-guide.md](../docs/agent-guide.md).
 
-## Инструменты — 43
+## Инструменты — 44
 
-- Задание и данные: `rf_check_assignment`, `rf_load_listings`.
+- Задание, отчёт и данные: `rf_check_assignment`, `rf_check_report` (ФСО VI),
+  `rf_load_listings`.
 - Недвижимость, сравнительный подход: `rf_comparative_approach`.
 - Доходный подход: `rf_net_operating_income`, `rf_cap_rate_extraction`,
   `rf_income_capitalization`, `rf_gross_rent_multiplier`, `rf_dcf_valuation`,

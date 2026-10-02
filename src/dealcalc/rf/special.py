@@ -73,6 +73,42 @@ def _flows(values: Any, name: str) -> List[float]:
     return [_number(f"{name}[{index}]", value) for index, value in enumerate(values)]
 
 
+# Conditions of application the appraiser confirms (confirmed_conditions).
+MARKET_RENT_CONDITIONS = {
+    "no_comparable_rents": "сравнение по рыночным ставкам аренды неприменимо или данных недостаточно",
+    "owner_costs_complete": "состав сопоставимого имущества, прав и расходов собственника определён полностью",
+    "result_form_defined": (
+        "задание определяет результат как арендную плату — форму результата оценки прав "
+        "(МРз–1/26, § 10.2.3, 11.3–11.6), а не иную расчётную величину"
+    ),
+}
+CELLULAR_SITE_CONDITIONS = {
+    "no_comparable_data": "данных сравнения по аренде мест нет или они недостоверны",
+    "comparable_utility_object": "объект сопоставимой полезности определён (не стоимость крыши или стойки)",
+}
+COST_INCOME_CONDITIONS = {
+    "same_property": "обе стоимости относятся к одному имуществу в одних границах",
+    "only_external_factor": (
+        "стоимости различаются только внешним фактором: физический износ и функциональное "
+        "устаревание учтены в обеих одинаково"
+    ),
+}
+PAIRED_SALES_CONDITIONS = {
+    "isolated_external_factor": "пара продаж различается только внешним фактором",
+}
+LOST_INCOME_CONDITIONS = {
+    "verified_counterfactual": "сценарий без внешнего фактора проверяем и обоснован",
+    "full_horizon": (
+        "горизонт потерь полный: после последнего периода потерь нет или их остаточная "
+        "стоимость учтена отдельно"
+    ),
+}
+FUND_UNIT_CONDITIONS = {
+    "net_distributions": "выплаты — нетто: за вычетом вознаграждений, расходов фонда и налогов владельца",
+    "no_double_illiquidity": "скидка за неликвидность не учтена дважды — в потоках и в ставке",
+}
+
+
 @method_card(
     "MARKET_RENT_COST_PLUS",
     "МРз–1/26, затратный подход (метод компенсации затрат); ФСО №7; ФСО V",
@@ -80,6 +116,7 @@ def _flows(values: Any, name: str) -> List[float]:
     "ПВД = ДВД / ((1 − недозагрузка)(1 − недосбор))",
     FORMULA_RECOMMENDATION,
     source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/120126/",
+    required_conditions=MARKET_RENT_CONDITIONS,
 )
 def market_rent_cost_plus(
     property_value: float,
@@ -151,8 +188,8 @@ def market_rent_cost_plus(
         "rent_sqm_year": None if area is None else money(pgi / area),
         "rent_sqm_month": None if area is None else money(pgi / area / 12),
         "guardrails": [
-            "Сначала проверьте сравнительный подход по рыночным ставкам аренды.",
-            "Рыночная арендная плата — самостоятельная величина, не стоимость объекта или права аренды.",
+            "Результат — арендная плата как форма результата оценки прав (МРз–1/26); не путайте "
+            "её с капитализированной стоимостью права аренды.",
             "Отделите доход бизнеса и прибыль предпринимателя; укажите НДС, эксплуатационные платежи, индексацию.",
         ],
         "checks": [],
@@ -166,6 +203,7 @@ def market_rent_cost_plus(
     "аренда = (ЧОД + расходы собственника) / (1 − недосбор)",
     FORMULA_RECOMMENDATION,
     source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/3-26-v2/",
+    required_conditions=CELLULAR_SITE_CONDITIONS,
 )
 def cellular_site_rent(
     comparable_asset_value: float,
@@ -209,8 +247,6 @@ def cellular_site_rent(
         "gross_rent_year": money(gross),
         "gross_rent_month": money(gross / 12),
         "guardrails": [
-            "Обратная капитализация — только при отсутствии или сомнительности данных сравнения.",
-            "Не подменяйте объект сопоставимой полезности стоимостью крыши или стойки.",
             "Укажите число комплектов, срок, индексацию, периодичность платежей и НДС.",
         ],
         "checks": [],
@@ -232,6 +268,7 @@ def _obsolescence_checks(amount: float) -> List[str]:
     "E_abs = V_затр без внешнего фактора − V_доход с фактором; E_% = E_abs / V_затр",
     FORMULA_ENGINEERING,
     source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/8-23-2/",
+    required_conditions=COST_INCOME_CONDITIONS,
 )
 def external_obsolescence_cost_income(
     cost_value_without_external: float,
@@ -271,9 +308,8 @@ def external_obsolescence_cost_income(
             "Процент внешнего обесценения зависит от базы: в cost_approach он применяется "
             "к улучшениям — передайте external_obsolescence_pct_of_improvements или "
             "денежную потерю external_obsolescence_amount.",
-            "Затратная и доходная стоимости должны отличаться только внешним фактором: если "
-            "в затратной стоимости уже вычтены физический износ и функциональное устаревание, "
-            "а доходная их не отражает (или наоборот), разница включит их повторно."
+            "Разница затратной и доходной стоимости не всегда сводится к внешнему обесценению: "
+            "проверьте другие причины расхождения."
         ],
         "checks": _obsolescence_checks(amount),
     }
@@ -285,6 +321,7 @@ def external_obsolescence_cost_income(
     "E_ratio = 1 − V_с фактором / V_без фактора; E_abs = V_база × E_ratio",
     FORMULA_ENGINEERING,
     source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/8-23-2/",
+    required_conditions=PAIRED_SALES_CONDITIONS,
 )
 def external_obsolescence_paired_sales(
     value_without_impact: float,
@@ -307,7 +344,6 @@ def external_obsolescence_paired_sales(
         "obsolescence_ratio_pct": money(ratio * 100),
         "base_value": money(base),
         "external_obsolescence": money(base * ratio),
-        "guardrails": ["Убедитесь, что пара продаж изолирует именно внешний фактор."],
         "checks": checks,
     }
 
@@ -318,6 +354,8 @@ def external_obsolescence_paired_sales(
     "PV_loss = Σ (CF_без фактора − CF_с фактором)_t / (1 + r)^t",
     FORMULA_ENGINEERING,
     source_url="https://srosovet.ru/Metod/metodicheskierecommenrazn123/8-23-2/",
+    income_model=True,
+    required_conditions=LOST_INCOME_CONDITIONS,
 )
 def external_obsolescence_lost_income(
     cash_flows_without: Sequence[float],
@@ -361,6 +399,8 @@ def external_obsolescence_lost_income(
     "V_пая = Σ выплаты_t / (1 + r)^t + (финальная компенсация − расходы прекращения) / (1 + r)^T",
     FORMULA_RECOMMENDATION,
     source_url="https://srosovet.ru/press/news/030823/",
+    income_model=True,
+    required_conditions=FUND_UNIT_CONDITIONS,
 )
 def fund_unit_value(
     distributions: Sequence[float],
@@ -416,7 +456,6 @@ def fund_unit_value(
         "unit_value": money(pv_payouts + pv_final),
         "guardrails": [
             "Сравнительный подход — только при сделках с паями того же фонда.",
-            "Не дублируйте скидку за неликвидность, если она отражена в потоках или ставке.",
         ],
         "checks": checks,
     }
