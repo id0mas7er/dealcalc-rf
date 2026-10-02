@@ -14,7 +14,35 @@ from mcp.server.fastmcp import FastMCP
 
 from dealcalc import rf
 
-mcp = FastMCP("dealcalc-rf")
+# Sent to the agent when it connects; the full guide is docs/agent-guide.md.
+AGENT_INSTRUCTIONS = """\
+DealCalc RF — расчёты для оценки в РФ (ФСО I–V, №7, №8, №10, рекомендации «СРОО
+Экспертный совет»). Результат любого инструмента — черновик для оценщика, не
+итоговая стоимость и не отчёт.
+
+Порядок работы:
+1. rf_check_assignment: при can_proceed = false не считать, запросить
+   missing_critical у оценщика.
+2. Передавать context {valuation_date, value_type, vat, vat_rate_pct,
+   assignment_id} в каждый расчёт стоимости.
+3. Аналоги из файла — rf_load_listings; у аналогов указывать source, date (дату
+   цены), price_type (сделка | предложение).
+4. Скидки, корректировки, ставки, веса, пороги и ограничения отбора задаёт
+   оценщик: не подставлять их самому; если их нет — спросить.
+5. Согласование — rf_reconcile_approaches с весами и порогом оценщика.
+6. Докладывать стоимость, status дословно, все checks (дефекты данных) и все
+   guardrails (что обосновать), стандарт и формулу из method_card. Числа не
+   пересчитывать вручную.
+
+Проценты задаются числами: 5 означает 5 %. Суммы в рублях, площадь в м².
+Ошибка инструмента — неверный вход: прочитать текст и исправить данные.
+Полная инструкция: docs/agent-guide.md в репозитории id0mas7er/dealcalc-rf.
+"""
+
+try:
+    mcp = FastMCP("dealcalc-rf", instructions=AGENT_INSTRUCTIONS)
+except TypeError:  # older SDK without server instructions
+    mcp = FastMCP("dealcalc-rf")
 
 CONTEXT_NOTE = (
     "\n\ncontext (необязательно): {valuation_date: 'ГГГГ-ММ-ДД', value_type: рыночная | "

@@ -65,6 +65,10 @@ def _call(name, arguments):
     return json.loads(content[0].text)
 
 
+def test_server_sends_agent_instructions():
+    assert "rf_check_assignment" in (server.mcp.instructions or "")
+
+
 def test_server_exposes_all_tools():
     tools = asyncio.run(server.mcp.list_tools())
 

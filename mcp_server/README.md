@@ -43,6 +43,20 @@ Claude Code — файл `.mcp.json` в корне проекта с тем же
 claude mcp add dealcalc-rf -- python /absolute/path/to/dealcalc-rf/mcp_server/server.py
 ```
 
+Codex:
+
+```bash
+codex mcp add dealcalc-rf -- python /absolute/path/to/dealcalc-rf/mcp_server/server.py
+```
+
+## Как агенту работать с сервером
+
+При подключении сервер передаёт агенту краткие правила: проверить задание,
+передавать `context`, не подставлять коэффициенты за оценщика, докладывать
+статус, `checks` и `guardrails`. Полная инструкция с порядком работы,
+сценариями по видам объектов и разбором полей результата —
+[docs/agent-guide.md](../docs/agent-guide.md).
+
 ## Инструменты — 43
 
 - Задание и данные: `rf_check_assignment`, `rf_load_listings`.
