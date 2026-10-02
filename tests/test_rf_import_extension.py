@@ -153,3 +153,20 @@ def test_machinery_listings(tmp_path):
 def test_unknown_listing_type():
     with pytest.raises(ValueError, match="listing_type"):
         rf.normalize_listing({"price": 1}, "S", listing_type="art")
+
+
+# Codex review of 0.6.0.
+
+
+def test_income_listings_differing_only_in_income_are_kept(tmp_path):
+    path = _csv(tmp_path, "Цена;ЧОД\n100 000 000;10 000 000\n100 000 000;20 000 000\n")
+    listings = rf.load_listings(path, source="S", listing_type="income")
+
+    assert [item["noi"] for item in listings] == [10_000_000, 20_000_000]
+
+
+def test_xlsx_formula_without_cached_value_is_an_error(tmp_path):
+    path = _xlsx(tmp_path, [["Цена"], [100], ["=100*2"]])
+
+    with pytest.raises(ValueError, match="row 3.*пересчитайте"):
+        rf.load_listings(path, source="S", sheet="Аналоги")

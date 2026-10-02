@@ -351,7 +351,7 @@ def normalize_listing(
                 for field in (
                     "source", "listing_type", "price_rub", "area_sqm", "address", "city",
                     "rooms", "floor", "total_floors", "year", "brand", "model", "mileage_km",
-                    "name", "value", "metric", "operating_hours",
+                    "name", "industry", "value", "metric", "operating_hours", "noi", "gross_income",
                 )
             )
         seed = "|".join("" if item is None else str(item) for item in stable_fields)
@@ -458,15 +458,26 @@ def _xlsx_rows(path: Path, sheet: Optional[str]) -> Iterable[Tuple[str, Mapping[
     except ImportError as exc:  # pragma: no cover - dependency of the package
         raise ValueError("reading .xlsx needs the openpyxl package") from exc
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
+    # Formulas: a file saved without recalculation keeps no cached values, and
+    # data_only=True returns None for them — such cells must not vanish.
+    formulas = openpyxl.load_workbook(path, read_only=True, data_only=False)
     try:
         if sheet is None:
-            worksheet = workbook.worksheets[0]
+            worksheet, formula_sheet = workbook.worksheets[0], formulas.worksheets[0]
         elif sheet in workbook.sheetnames:
-            worksheet = workbook[sheet]
+            worksheet, formula_sheet = workbook[sheet], formulas[sheet]
         else:
             raise ValueError(f"sheet «{sheet}» not found; sheets: {', '.join(workbook.sheetnames)}")
         header: Optional[List[str]] = None
-        for number, cells in enumerate(worksheet.iter_rows(values_only=True), start=1):
+        rows = zip(worksheet.iter_rows(values_only=True), formula_sheet.iter_rows(values_only=True))
+        for number, (cells, raw_cells) in enumerate(rows, start=1):
+            if any(
+                cell is None and isinstance(raw, str) and raw.startswith("=")
+                for cell, raw in zip(cells, raw_cells)
+            ):
+                raise ValueError(
+                    f"row {number}: формула без сохранённого значения — пересчитайте и сохраните файл в Excel"
+                )
             if all(cell in (None, "") for cell in cells):
                 continue
             if header is None:
@@ -484,6 +495,7 @@ def _xlsx_rows(path: Path, sheet: Optional[str]) -> Iterable[Tuple[str, Mapping[
             raise ValueError("the sheet must contain a header row")
     finally:
         workbook.close()
+        formulas.close()
 
 
 def load_listings(
