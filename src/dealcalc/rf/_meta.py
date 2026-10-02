@@ -9,7 +9,8 @@ list of ``checks`` — warnings the appraiser has to review.
 from __future__ import annotations
 
 import functools
-from datetime import date
+import math
+from datetime import date, datetime
 from collections.abc import Mapping
 from typing import Any, Callable, Dict, List, Sequence
 
@@ -75,8 +76,13 @@ def assignment_context(context: Any) -> Dict[str, Any]:
         vat = None
     vat_rate = context.get("vat_rate_pct")
     if vat_rate is not None:
-        if isinstance(vat_rate, bool) or not isinstance(vat_rate, (int, float)) or vat_rate < 0:
-            raise ValueError("context.vat_rate_pct must be a non-negative number")
+        if (
+            isinstance(vat_rate, bool)
+            or not isinstance(vat_rate, (int, float))
+            or not math.isfinite(vat_rate)
+            or vat_rate < 0
+        ):
+            raise ValueError("context.vat_rate_pct must be a finite non-negative number")
         vat_rate = float(vat_rate)
 
     assignment_id = context.get("assignment_id")
@@ -212,10 +218,27 @@ def observation_fields(comparable: Mapping[str, Any], prefix: str) -> Dict[str, 
     return fields
 
 
+def _is_date(value: Any) -> bool:
+    """A price date in YYYY-MM-DD (optionally with time) or DD.MM.YYYY."""
+
+    text = str(value).strip()
+    try:
+        datetime.fromisoformat(text)
+        return True
+    except ValueError:
+        pass
+    try:
+        datetime.strptime(text, "%d.%m.%Y")
+        return True
+    except ValueError:
+        return False
+
+
 def observation_checks(items: Sequence[Mapping[str, Any]], date_keys: Sequence[str] = ("date",)) -> List[str]:
     """Warnings about missing provenance of market observations."""
 
     checks = []
+    bad_dates = [item["index"] for item in items if item.get("date") and not _is_date(item["date"])]
     no_source = [item["index"] for item in items if not item.get("source")]
     no_date = [item["index"] for item in items if not any(item.get(key) for key in date_keys)]
     no_type = [item["index"] for item in items if not item.get("price_type")]
@@ -223,6 +246,10 @@ def observation_checks(items: Sequence[Mapping[str, Any]], date_keys: Sequence[s
         checks.append(f"Не указан источник у аналогов {no_source}.")
     if no_date:
         checks.append(f"Не указана дата цены у аналогов {no_date}.")
+    if bad_dates:
+        checks.append(
+            f"Дата цены не распознана у аналогов {bad_dates}: ожидается ГГГГ-ММ-ДД или ДД.ММ.ГГГГ."
+        )
     if no_type:
         checks.append(f"Не указан тип цены (сделка/предложение) у аналогов {no_type}.")
     for item in items:

@@ -16,6 +16,7 @@ from ._adjustments import (
     apply_adjustments,
     json_value,
     money,
+    scaled_weights,
     variation,
     weight_shares,
 )
@@ -236,6 +237,8 @@ def vehicle_comparative_approach(
     subject_brand = _brand_keys(subject.get("brand"), synonym_index)
     subject_model = _model_tokens(subject.get("model"), model_replacements)
 
+    max_year_diff = _number("max_year_diff", max_year_diff, allow_none=True)
+    max_mileage_diff = _number("max_mileage_diff", max_mileage_diff, allow_none=True)
     if max_year_diff is not None and max_year_diff < 0:
         raise ValueError("max_year_diff must be non-negative or None")
     if max_mileage_diff is not None and max_mileage_diff < 0:
@@ -244,6 +247,9 @@ def vehicle_comparative_approach(
     matched: List[Dict[str, Any]] = []
     weighted_items = []
     rejected = 0
+    # Analogs a set limit could not be applied to for lack of data.
+    no_year: List[int] = []
+    no_mileage: List[int] = []
     for index, comparable in enumerate(comparables, start=1):
         if not isinstance(comparable, Mapping):
             raise ValueError(f"comparables[{index - 1}] must be an object")
@@ -267,6 +273,10 @@ def vehicle_comparative_approach(
             comparable.get("mileage_km"),
             allow_none=True,
         )
+        if max_year_diff is not None and subject_year is not None and comp_year is None:
+            no_year.append(index)
+        if max_mileage_diff is not None and subject_mileage is not None and comp_mileage is None:
+            no_mileage.append(index)
         if (
             max_year_diff is not None
             and subject_year is not None
@@ -306,6 +316,9 @@ def vehicle_comparative_approach(
 
     if not matched:
         raise ValueError("no comparable vehicles matched the subject filters")
+    weighted_items = list(
+        zip([price for price, _ in weighted_items], scaled_weights([weight for _, weight in weighted_items]))
+    )
     for item, share in zip(matched, weight_shares([weight for _, weight in weighted_items])):
         item["weight_share"] = share
 
@@ -315,6 +328,18 @@ def vehicle_comparative_approach(
     price_variation = variation(adjusted_prices)
     checks = observation_checks(matched)
     checks += variation_checks(price_variation, len(matched))
+    matched_indices = {item["index"] for item in matched}
+    for limit, subject_value, missing, label in (
+        (max_year_diff, subject_year, no_year, "года выпуска"),
+        (max_mileage_diff, subject_mileage, no_mileage, "пробега"),
+    ):
+        if limit is None:
+            continue
+        if subject_value is None:
+            checks.append(f"У объекта оценки нет {label}: ограничение отбора по нему не проверено.")
+        missing = [index for index in missing if index in matched_indices]
+        if missing:
+            checks.append(f"У аналогов {missing} нет {label}: ограничение отбора по нему не проверено.")
     if max_year_diff is None or max_mileage_diff is None:
         checks.append(
             "Не заданы ограничения отбора по году и/или пробегу: "

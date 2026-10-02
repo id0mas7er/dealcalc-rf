@@ -13,6 +13,7 @@ import json
 import math
 import re
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
@@ -44,6 +45,8 @@ _ALIASES = {
     "total_floors": ("total_floors", "этажей", "всего этажей"),
     "year": ("year", "год", "год выпуска", "год постройки"),
     "condition": ("condition", "состояние"),
+    "conditions": ("conditions", "условия", "условия сделки", "условия продажи"),
+    "reliability": ("reliability", "надёжность", "надежность", "достоверность"),
     "brand": ("brand", "марка", "make"),
     "model": ("model", "модель"),
     "mileage_km": ("mileage_km", "mileage", "пробег", "пробег км"),
@@ -66,6 +69,8 @@ _TEXT_FIELDS = {
     "region",
     "city",
     "condition",
+    "conditions",
+    "reliability",
     "brand",
     "model",
     "transmission",
@@ -93,8 +98,23 @@ def _lookup(row: Mapping[str, Any], field: str) -> Any:
     return None
 
 
+# A number, an optional multiplier and an optional unit: "5 млн руб.", "45 м2".
+_NUMBER_TEXT = re.compile(
+    r"^(?P<number>[-+]?[0-9][0-9 .,]*?)\s*"
+    r"(?:(?P<multiplier>тыс|млн|млрд)\.?)?\s*"
+    r"(?:руб(?:лей|ля|ль)?\.?|р\.|₽|rub|км|km|м2|м²|кв\.?\s*м\.?|sqm|л\.?\s*с\.?|hp|%)?$"
+)
+_MULTIPLIERS = {"тыс": Decimal(1_000), "млн": Decimal(1_000_000), "млрд": Decimal(1_000_000_000)}
+
+
 def parse_number(value: Any, field: str) -> Optional[float]:
-    """Parse a number from a CSV/JSON value, including Russian price strings."""
+    """Parse a number from a CSV/JSON value, including Russian price strings.
+
+    Thousand separators, a decimal comma, the multipliers "тыс.", "млн",
+    "млрд" and a trailing unit (руб., ₽, км, м2, л.с., %) are understood.
+    Any other letters ("1e6", "USD", "от 5 000 000") are rejected rather than
+    dropped, so the number never changes its scale silently.
+    """
 
     if value is None or value == "":
         return None
@@ -106,7 +126,11 @@ def parse_number(value: Any, field: str) -> Optional[float]:
         text = str(value).strip().replace("\u00a0", " ")
         if not text:
             return None
-        text = re.sub(r"[^0-9,.-]", "", text)
+        match = _NUMBER_TEXT.match(text.lower())
+        if not match:
+            raise ValueError(f"{field} must be a number, got {text!r}")
+        multiplier = _MULTIPLIERS.get(match.group("multiplier") or "", Decimal(1))
+        text = match.group("number").replace(" ", "").rstrip(".,")
         if "," in text and "." in text:
             # The last separator is the decimal one: 1.200.000,50 or 1,200,000.50.
             if text.rfind(",") > text.rfind("."):
@@ -120,8 +144,8 @@ def parse_number(value: Any, field: str) -> Optional[float]:
         elif text.count(".") > 1:
             text = text.replace(".", "")
         try:
-            number = float(text)
-        except ValueError as exc:
+            number = float(Decimal(text) * multiplier)
+        except InvalidOperation as exc:
             raise ValueError(f"{field} must be a number") from exc
     if not math.isfinite(number):
         raise ValueError(f"{field} must be finite")
@@ -245,27 +269,30 @@ def normalize_listing(
     if values["mileage_km"] is not None and values["mileage_km"] < 0:
         raise ValueError("mileage_km must be non-negative")
 
-    if not values["listing_id"]:
-        stable_fields = (
-            values["source"],
-            values["url"],
-            values["listing_type"],
-            values["price_rub"],
-            values["area_sqm"],
-            values["year"],
-            values["brand"],
-            values["model"],
-            values["mileage_km"],
-        )
-        # The address is not an identifier: different flats share it.
+    if values["listing_id"]:
+        values["listing_id_basis"] = "listing_id"
+    else:
+        # Without url, VIN or cadastral number the id is built from the
+        # characteristics. The address alone is not an identifier (flats
+        # share it), but it distinguishes listings together with the rest.
         if values["url"]:
-            stable_fields = (values["source"], values["url"])
+            basis, stable_fields = "url", (values["source"], values["url"])
         elif values["vin"]:
-            stable_fields = (values["source"], "vin", values["vin"].upper())
+            basis, stable_fields = "vin", (values["source"], "vin", values["vin"].upper())
         elif values["cadastral_number"]:
-            stable_fields = (values["source"], "cadastral", values["cadastral_number"])
+            basis, stable_fields = "cadastral", (values["source"], "cadastral", values["cadastral_number"])
+        else:
+            basis = "characteristics"
+            stable_fields = tuple(
+                values[field]
+                for field in (
+                    "source", "listing_type", "price_rub", "area_sqm", "address", "city",
+                    "rooms", "floor", "total_floors", "year", "brand", "model", "mileage_km",
+                )
+            )
         seed = "|".join("" if item is None else str(item) for item in stable_fields)
         values["listing_id"] = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
+        values["listing_id_basis"] = basis
 
     return values
 

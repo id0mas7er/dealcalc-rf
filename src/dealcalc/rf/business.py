@@ -122,6 +122,8 @@ def business_income_approach(
     chosen_basis = _basis(basis)
     if isinstance(cash_flows, (str, bytes)) or not cash_flows:
         raise ValueError("cash_flows must contain at least one value")
+    if not isinstance(mid_year, bool):
+        raise ValueError("mid_year must be true or false")
     flows = [_number(f"cash_flows[{index}]", flow) for index, flow in enumerate(cash_flows)]
     rate = _rate("discount_rate_pct", discount_rate_pct) / 100
     terminal = _number("terminal_value", terminal_value)

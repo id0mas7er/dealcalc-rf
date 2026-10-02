@@ -16,7 +16,7 @@ from __future__ import annotations
 import math
 import statistics
 from collections.abc import Mapping, Sequence
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from ._adjustments import (
     WEIGHTING_FORMULAS,
@@ -24,6 +24,7 @@ from ._adjustments import (
     analog_weight,
     apply_adjustments,
     money,
+    scaled_weights,
     variation,
     weight_shares,
 )
@@ -138,8 +139,8 @@ def comparative_approach(
         raise ValueError("comparables must contain at least one item")
 
     normalized = []
-    total_weight = 0.0
-    weighted_unit_sum = 0.0
+    raw_weights: List[float] = []
+    raw_prices: List[float] = []
 
     for index, comparable in enumerate(comparables, start=1):
         if not isinstance(comparable, Mapping):
@@ -161,8 +162,8 @@ def comparative_approach(
         )
         adjusted_unit_price = adjusted["adjusted_price"]
         weight = analog_weight(comparable, adjusted, weighting, prefix)
-        total_weight += weight
-        weighted_unit_sum += adjusted_unit_price * weight
+        raw_weights.append(weight)
+        raw_prices.append(adjusted_unit_price)
 
         item: Dict[str, Any] = {
             "index": index,
@@ -178,9 +179,12 @@ def comparative_approach(
         }
         normalized.append(item)
 
-    for item, share in zip(normalized, weight_shares([item["weight"] for item in normalized])):
+    for item, share in zip(normalized, weight_shares(raw_weights)):
         item["weight_share"] = share
-    weighted_unit_price = _round(weighted_unit_sum / total_weight)
+    scaled = scaled_weights(raw_weights)
+    weighted_unit_price = _round(
+        sum(price * weight for price, weight in zip(raw_prices, scaled)) / sum(scaled)
+    )
     adjusted_prices = [item["adjusted_unit_price"] for item in normalized]
     sample_variation = variation(adjusted_prices)
     return {
@@ -458,7 +462,7 @@ def gross_rent_multiplier(
 
     mean = statistics.mean(multipliers)
     median = statistics.median(multipliers)
-    chosen = _round(mean if statistic == "mean" else median)
+    chosen = mean if statistic == "mean" else median
     multiplier_variation = variation(multipliers)
     return {
         "approach": "income",
@@ -510,8 +514,10 @@ def dcf_valuation(
     discount-rate source.
     """
 
-    if not cash_flows:
-        raise ValueError("cash_flows must contain at least one value")
+    if isinstance(cash_flows, (str, bytes)) or not cash_flows:
+        raise ValueError("cash_flows must be a list with at least one value")
+    if not isinstance(mid_year, bool):
+        raise ValueError("mid_year must be true or false")
     flows = [_finite_number("cash_flows item", value) for value in cash_flows]
     discount_rate = _finite_number("discount_rate_pct", discount_rate_pct)
     if discount_rate <= -100:
@@ -763,7 +769,8 @@ def reconcile_approaches(
         note = justification.strip()
 
     used = {name: value for name, value in values.items() if given[name] > 0}
-    reconciled = sum(values[name] * given[name] for name in values)
+    weight_total = sum(given.values())
+    reconciled = sum(values[name] * given[name] for name in values) / weight_total
     low, high = min(used.values()), max(used.values())
     bases = {"min": low, "mean": sum(used.values()) / len(used), "max": high}
     if divergence_base not in bases:

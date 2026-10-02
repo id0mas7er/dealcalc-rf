@@ -51,15 +51,18 @@ def rf_check_assignment(assignment: dict) -> dict:
 
 
 @mcp.tool()
-def rf_load_listings(path: str, source: str, listing_type: str = "property") -> dict:
+def rf_load_listings(
+    path: str, source: str, listing_type: str = "property", collected_at: Optional[str] = None
+) -> dict:
     """Импорт сохранённых объявлений из локального файла CSV, JSON или JSONL (без сети).
 
     listing_type: property | vehicle. Русские названия колонок, цена в рублях,
     адрес, дата публикации (date — дата цены), тип цены (по умолчанию «предложение»;
     нераспознанный оставляется пустым с import_warnings), пошаговые корректировки;
     дубли удаляются. Ошибка в строке называет её номер. Результат — аналоги для
-    сравнительного подхода. Читается любой локальный путь, доступный процессу сервера."""
-    listings = rf.load_listings(path, source, listing_type)
+    сравнительного подхода. Читается любой локальный путь, доступный процессу сервера.
+    collected_at — дата сбора файла (не дата цены); без неё — текущее время."""
+    listings = rf.load_listings(path, source, listing_type, collected_at)
     return {"count": len(listings), "listings": listings}
 
 

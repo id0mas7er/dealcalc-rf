@@ -124,7 +124,7 @@ def market_rent_cost_plus(
             pct_total += amount
         else:
             raise ValueError(f"{prefix}.type must be 'abs' or 'pct'")
-        items.append({"name": name.strip(), "type": kind, "value": money(amount)})
+        items.append({"name": name.strip(), "type": kind, "value": amount})
     if pct_total >= 100:
         raise ValueError("owner expenses in percent of ДВД must be less than 100 in total")
 
@@ -132,6 +132,7 @@ def market_rent_cost_plus(
     egi = (noi + abs_total) / (1 - pct_total / 100)
     for item in items:
         item["amount"] = money(item["value"] if item["type"] == "abs" else egi * item["value"] / 100)
+        item["value"] = money(item["value"]) if item["type"] == "abs" else item["value"]
     pgi = egi / ((1 - vacancy / 100) * (1 - collection / 100))
     return {
         "value_kind": "рыночная арендная плата",
@@ -358,6 +359,8 @@ def fund_unit_value(
     reduced by termination costs. No separate terminal value is added.
     """
 
+    if isinstance(distributions, (str, bytes)):
+        raise ValueError("distributions must be a list")
     payouts = [_non_negative(f"distributions[{index}]", value) for index, value in enumerate(distributions or [])]
     final = _non_negative("final_compensation", final_compensation)
     costs = _non_negative("termination_costs", termination_costs)
@@ -365,6 +368,11 @@ def fund_unit_value(
     period_final = len(payouts) if final_period is None else _positive("final_period", final_period)
     if period_final <= 0:
         raise ValueError("final_period is required when there are no distributions")
+    if period_final < len(payouts):
+        raise ValueError(
+            f"final_period {period_final:g} is before the last distribution (year {len(payouts)}): "
+            "payouts cannot follow the termination of the fund"
+        )
 
     rows = []
     pv_payouts = 0.0

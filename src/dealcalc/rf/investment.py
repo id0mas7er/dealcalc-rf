@@ -88,8 +88,9 @@ def irr(cash_flows: Sequence[float]) -> Dict[str, Any]:
     result = npf.irr(flows)
     if result is None or not math.isfinite(result):
         raise ValueError("IRR could not be found for these cash flows (sign change)")
+    nonzero = [flow for flow in flows if flow != 0]
     sign_changes = sum(
-        1 for previous, current in zip(flows, flows[1:]) if previous * current < 0
+        1 for previous, current in zip(nonzero, nonzero[1:]) if previous * current < 0
     )
     return {
         "cash_flows": [money(flow) for flow in flows],
@@ -250,7 +251,7 @@ def _named_premiums(premiums: Any) -> List[Dict[str, Any]]:
         if not isinstance(name, str) or not name.strip():
             raise ValueError(f"{prefix}.name must be a non-empty string")
         value = _flows([premium.get("value")])[0]
-        item: Dict[str, Any] = {"name": name.strip(), "value_pct": money(value)}
+        item: Dict[str, Any] = {"name": name.strip(), "value_pct": value}
         if premium.get("source"):
             item["source"] = str(premium["source"])
         result.append(item)
@@ -339,7 +340,8 @@ def capital_recovery_rate(
         raise ValueError("remaining_life_years must be greater than 0")
 
     def sinking_fund(y: float) -> float:
-        return 1 / life if y == 0 else y / ((1 + y) ** life - 1)
+        # expm1/log1p keep (1 + y)^n − 1 accurate for rates close to zero.
+        return 1 / life if y == 0 else y / math.expm1(life * math.log1p(y))
 
     if method == "ring":
         recovery = 1 / life

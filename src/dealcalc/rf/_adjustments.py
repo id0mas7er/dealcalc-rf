@@ -192,9 +192,20 @@ def analog_weight(
     return 1 / (1 + adjusted["adjustments_count"])
 
 
+def scaled_weights(weights: Sequence[float]) -> List[float]:
+    """Weights divided by the largest one: shares and weighted averages stay
+    the same, and very large weights cannot overflow their sum."""
+
+    largest = max(weights)
+    return [weight / largest for weight in weights]
+
+
 def weight_shares(weights: Sequence[float]) -> List[float]:
-    total = sum(weights)
-    return [round(weight / total, 4) for weight in weights]
+    """Shares of unrounded positive weights, rounded for the output only."""
+
+    scaled = scaled_weights(weights)
+    total = sum(scaled)
+    return [round(weight / total, 4) for weight in scaled]
 
 
 def _share_pct(amount: float, base: float) -> Optional[float]:
@@ -207,9 +218,10 @@ def variation(prices: Sequence[float]) -> Dict[str, Any]:
     if len(prices) < 2 or statistics.mean(prices) == 0:
         coefficient = None
     else:
-        coefficient = money(statistics.stdev(prices) / statistics.mean(prices) * 100)
+        coefficient = statistics.stdev(prices) / statistics.mean(prices) * 100
+    # The threshold is compared with the unrounded coefficient.
     return {
-        "coefficient_pct": coefficient,
+        "coefficient_pct": None if coefficient is None else money(coefficient),
         "threshold_pct": HOMOGENEITY_THRESHOLD_PCT,
         "homogeneous": None
         if coefficient is None

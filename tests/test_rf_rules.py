@@ -88,13 +88,14 @@ def test_heterogeneous_sample_is_flagged():
 
 def test_vehicle_without_selection_limits_is_flagged():
     comparables = [
-        {"price_rub": 1_000_000, **FULL},
-        {"price_rub": 1_050_000, **FULL},
+        {"price_rub": 1_000_000, "year": 2020, "mileage_km": 60_000, **FULL},
+        {"price_rub": 1_050_000, "year": 2021, "mileage_km": 40_000, **FULL},
     ]
+    subject = {"year": 2020, "mileage_km": 50_000}
 
-    without = vehicle_comparative_approach({}, comparables)
+    without = vehicle_comparative_approach(subject, comparables)
     limited = vehicle_comparative_approach(
-        {}, comparables, max_year_diff=3, max_mileage_diff=50_000
+        subject, comparables, max_year_diff=3, max_mileage_diff=50_000
     )
 
     assert without["selection"]["max_year_diff"] is None

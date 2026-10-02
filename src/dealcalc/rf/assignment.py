@@ -125,7 +125,7 @@ STOP_CONDITIONS = [
 
 
 def _present(value: Any) -> bool:
-    if value is None:
+    if value is None or value is False:
         return False
     if isinstance(value, str):
         return bool(value.strip())
@@ -171,7 +171,9 @@ def check_assignment(assignment: Mapping[str, Any]) -> Dict[str, Any]:
     missing_recommended = [
         field
         for field in _RECOMMENDED["common"] + _RECOMMENDED[contract]
+        # The inspection status may be a boolean: False is an answer.
         if not _present(assignment.get(field))
+        and not (field == "inspection_status" and isinstance(assignment.get(field), bool))
     ]
 
     checks: List[str] = []
@@ -188,7 +190,8 @@ def check_assignment(assignment: Mapping[str, Any]) -> Dict[str, Any]:
         except ValueError:
             checks.append(f"Дата оценки «{raw_date}» не в формате ГГГГ-ММ-ДД.")
     if contract == "real_estate":
-        inspection = str(assignment.get("inspection_status") or "").strip().lower()
+        raw_inspection = assignment.get("inspection_status")
+        inspection = "false" if raw_inspection is False else str(raw_inspection or "").strip().lower()
         if inspection in ("нет", "не проводился", "не проведён", "false", "no"):
             checks.append(
                 "Осмотр не проводился: по ФСО №7 нужно объяснить причину и раскрыть допущения."

@@ -16,6 +16,7 @@ from ._meta import (
     FORMULA_METHODICAL,
     FORMULA_TECHNICAL,
     method_card,
+    observation_checks,
     observation_fields,
 )
 
@@ -68,7 +69,9 @@ def braking_coefficient(
         "param_1": x1,
         "price_2": p2,
         "param_2": x2,
-        "braking_coefficient": round(math.log(p2 / p1) / math.log(x2 / x1), 4),
+        "braking_coefficient": round(
+            (math.log(p2) - math.log(p1)) / (math.log(x2) - math.log(x1)), 4
+        ),
     }
 
 
@@ -158,7 +161,7 @@ def chain_index(price_start: float, price_end: float, periods: float) -> Dict[st
         "price_start": start,
         "price_end": end,
         "periods": count,
-        "chain_index": round((end / start) ** (1 / count), 6),
+        "chain_index": round(math.exp((math.log(end) - math.log(start)) / count), 6),
     }
 
 
@@ -466,7 +469,7 @@ def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, A
         prefix = f"analogs[{index}]"
         if not isinstance(analog, Mapping):
             raise ValueError(f"{prefix} must be an object")
-        price = _non_negative(f"{prefix}.price", analog.get("price"))
+        price = _positive(f"{prefix}.price", analog.get("price"))
         steps = analog.get("adjustments") or []
         if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)):
             raise ValueError(f"{prefix}.adjustments must be a list")
@@ -528,11 +531,24 @@ def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, A
 
     best_upper = min(upper, key=lambda entry: (-entry[2], entry[1]))
     best_lower = min(lower, key=lambda entry: (entry[2], -entry[1]))
+    items = [entry[0] for entry in described]
+    checks = observation_checks(items)
+    # The subject lies between a lower and an upper analog: a lower analog
+    # that is dearer than an upper one makes the pair contradictory.
+    contradictory = [
+        (low[0]["index"], high[0]["index"]) for low in lower for high in upper if low[1] > high[1]
+    ]
+    if contradictory:
+        checks.append(
+            f"Пары {contradictory}: нижний аналог дороже верхнего — объект не может стоить "
+            "больше нижнего и меньше верхнего одновременно; проверьте направления корректировок."
+        )
     return {
         "method": "qualitative_adjustments",
-        "analogs": [entry[0] for entry in described],
+        "analogs": items,
         "pairs": pairs,
         "weighted_value": money(weighted),
         "range_value": money(pair_value(best_lower, best_upper)),
         "range_pair": {"lower": best_lower[0]["index"], "upper": best_upper[0]["index"]},
+        "checks": checks,
     }
