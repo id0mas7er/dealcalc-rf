@@ -27,9 +27,11 @@ DealCalc RF — расчёты для оценки в РФ (ФСО I–V, №7, 
    assignment_id} в каждый расчёт стоимости.
 3. Аналоги из файла — rf_load_listings; у аналогов указывать source, date (дату
    цены), price_type (сделка | предложение).
-4. Скидки, корректировки, ставки, веса, пороги и ограничения отбора задаёт
+4. Скидки, корректировки, ставки, веса и ограничения отбора задаёт
    оценщик: не подставлять их самому; если их нет — спросить.
-5. Согласование — rf_reconcile_approaches с весами и порогом оценщика.
+5. Согласование — rf_reconcile_approaches с весами оценщика; существенное
+   расхождение подходов — более 30 % по умолчанию, другой порог — только по
+   указанию оценщика.
 6. Докладывать стоимость, status дословно, все checks (дефекты данных) и все
    guardrails (что обосновать), стандарт и формулу из method_card. Числа не
    пересчитывать вручную.
@@ -347,7 +349,7 @@ def rf_indexed_replacement_cost(
 def rf_reconcile_approaches(
     approach_values: dict,
     weights: dict,
-    max_divergence_pct: float,
+    max_divergence_pct: Optional[float] = None,
     justification: Optional[str] = None,
     currency: str = "RUB",
     divergence_base: str = "min",
@@ -356,7 +358,8 @@ def rf_reconcile_approaches(
     """Согласование результатов подходов (ФСО V, п. 3). Механическое усреднение не допускается.
 
     weights — веса оценщика с суммой 1, вес 0 исключает подход. max_divergence_pct —
-    порог существенного расхождения оценщика; расхождение = (max − min) / база × 100,
+    порог существенного расхождения: по умолчанию 30 % (существенно — более 30 %),
+    другой — по указанию оценщика; расхождение = (max − min) / база × 100,
     divergence_base: min | mean | max. Выше порога без justification — статус
     «согласование не автоматизировано»."""
     return rf.reconcile_approaches(

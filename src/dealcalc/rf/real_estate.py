@@ -88,6 +88,11 @@ def _terminal_period(periods: int, timing: str) -> float:
     return periods - 0.5 if timing == "mid" else periods
 
 
+# Divergence of approaches above this share is material unless the
+# appraiser sets another threshold.
+MATERIAL_DIVERGENCE_PCT = 30.0
+
+
 def _round(value: float) -> float:
     return money(value)
 
@@ -727,7 +732,7 @@ def indexed_replacement_cost(
 def reconcile_approaches(
     approach_values: Mapping[str, float],
     weights: Mapping[str, float],
-    max_divergence_pct: float,
+    max_divergence_pct: Optional[float] = None,
     justification: Optional[str] = None,
     currency: str = "RUB",
     divergence_base: str = "min",
@@ -737,7 +742,8 @@ def reconcile_approaches(
     There are no default weights: mechanical averaging is not allowed.
     Weights must sum to 1 (tolerance 0.0001); a weight of 0 excludes an
     approach, so one approach can be selected. ``max_divergence_pct`` is the
-    appraiser's threshold of material divergence, measured as
+    threshold of material divergence (more than 30 % by default, or the
+    appraiser's own), measured as
     ``(max − min) / base × 100`` over the approaches with positive weight;
     ``divergence_base`` is ``min`` (default), ``mean`` or ``max`` — the base
     of the appraiser's threshold, named in the result.
@@ -761,7 +767,12 @@ def reconcile_approaches(
     given = {name: _non_negative(f"weights[{name}]", weights[name]) for name in values}
     if not math.isclose(sum(given.values()), 1, abs_tol=1e-4):
         raise ValueError("weights must sum to 1")
-    threshold = _non_negative("max_divergence_pct", max_divergence_pct)
+    default_threshold = max_divergence_pct is None
+    threshold = (
+        MATERIAL_DIVERGENCE_PCT
+        if default_threshold
+        else _non_negative("max_divergence_pct", max_divergence_pct)
+    )
     note = None
     if justification is not None:
         if not isinstance(justification, str) or not justification.strip():
@@ -813,9 +824,19 @@ def reconcile_approaches(
         "max_divergence_pct": _round(threshold),
         "justification": note,
         "value_range": {"low": _round(low), "high": _round(high)},
-        "guardrails": [f"Подходы с весом 0 не участвуют в результате: {excluded}; причину отказа опишите."]
-        if excluded
-        else [],
+        "guardrails": (
+            [f"Подходы с весом 0 не участвуют в результате: {excluded}; причину отказа опишите."]
+            if excluded
+            else []
+        )
+        + (
+            [
+                f"Порог существенного расхождения — {MATERIAL_DIVERGENCE_PCT:g} % по умолчанию; "
+                "другой порог задайте параметром max_divergence_pct."
+            ]
+            if default_threshold
+            else []
+        ),
         "checks": checks,
     }
     if status is not None:
