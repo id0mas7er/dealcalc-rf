@@ -233,6 +233,22 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Совместимость версий
+
+Версия 0.4.0 изменила поля результата. Агентам и программам, которые
+работали с 0.3.x, нужно учесть:
+
+- `reconciled_value` может быть `null`: при расхождении подходов выше
+  порога без обоснования итоговой стоимости нет, число в
+  `weighted_value_diagnostic` — только диагностика;
+- `indicated_value_range` → `analogs_spread`, `value_range` →
+  `approaches_spread` (это разброс, а не интервал стоимости; интервал —
+  `value_interval` от оценщика);
+- `variation.homogeneous` → `variation.within_threshold`;
+- `residual_value` больше не прибавляет утилизацию к остатку.
+
+Полный перечень — в [CHANGELOG](CHANGELOG.md).
+
 ## Структура репозитория
 
 ```text

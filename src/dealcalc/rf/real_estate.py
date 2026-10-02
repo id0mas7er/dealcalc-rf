@@ -787,6 +787,7 @@ def reconcile_approaches(
     justification: Optional[str] = None,
     currency: str = "RUB",
     divergence_base: str = "min",
+    value_interval: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Reconcile indicated values with appraiser-supplied weights.
 
@@ -801,6 +802,11 @@ def reconcile_approaches(
     Above it the result is not reconciled automatically unless a
     ``justification`` is given; the deviation of every approach from the
     reconciled value is shown.
+
+    ``value_interval`` — ``{"low", "high", "justification"}`` — is the
+    appraiser's judgment of the bounds within which the value may lie
+    (ФСО №7, п. 30, unless the assignment says otherwise). It is not derived
+    from the spread of approaches or analogs.
     """
 
     if not approach_values:
@@ -859,6 +865,23 @@ def reconcile_approaches(
                 "приведено обоснование оценщика."
             )
     excluded = [name for name in values if given[name] == 0]
+    interval = None
+    if value_interval is not None:
+        if not isinstance(value_interval, Mapping):
+            raise ValueError("value_interval must be an object with low, high and justification")
+        interval_low = _non_negative("value_interval.low", value_interval.get("low"))
+        interval_high = _non_negative("value_interval.high", value_interval.get("high"))
+        if interval_low > interval_high:
+            raise ValueError("value_interval.low must not exceed value_interval.high")
+        reason = value_interval.get("justification")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError("value_interval.justification is required: the interval is the appraiser's judgment")
+        interval = {"low": _round(interval_low), "high": _round(interval_high), "justification": reason.strip()}
+        if not interval_low <= reconciled <= interval_high:
+            checks.append(
+                f"Согласованная стоимость {_round(reconciled)} вне интервала оценщика "
+                f"[{interval['low']}; {interval['high']}]: проверьте интервал."
+            )
     if excluded and note is None:
         checks.append(
             f"Подходы {excluded} исключены (вес 0) без обоснования: приведите причину "
@@ -883,7 +906,15 @@ def reconcile_approaches(
         "justification": note,
         # The spread of the approaches, not an interval of value (ФСО №7, п. 30).
         "approaches_spread": {"low": _round(low), "high": _round(high)},
-        "guardrails": []
+        "value_interval": interval,
+        "guardrails": (
+            [
+                "Для недвижимости после согласования приведите суждение о границах интервала "
+                "стоимости (ФСО №7, п. 30), если задание не указывает иное: value_interval."
+            ]
+            if interval is None
+            else []
+        )
         + (
             [
                 f"Порог существенного расхождения — {MATERIAL_DIVERGENCE_PCT:g} % по умолчанию; "

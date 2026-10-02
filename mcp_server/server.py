@@ -31,7 +31,9 @@ DealCalc RF — расчёты для оценки в РФ (ФСО I–VI, №7,
    оценщик: не подставлять их самому; если их нет — спросить.
 5. Согласование — rf_reconcile_approaches с весами оценщика; существенное
    расхождение подходов — более 30 % по умолчанию, другой порог — только по
-   указанию оценщика.
+   указанию оценщика. Если согласование не завершено, reconciled_value = null:
+   не выдавать weighted_value_diagnostic за итог. Интервал стоимости
+   (value_interval) задаёт только оценщик.
 6. Докладывать стоимость, status дословно, все checks (дефекты данных) и все
    guardrails (что обосновать), стандарт и формулу из method_card. Числа не
    пересчитывать вручную.
@@ -121,7 +123,9 @@ def rf_check_report(report: dict) -> dict:
     engaged_specialists (пустой список — их нет), standards, methodical_recommendations или
     recommendations_not_used_reason, object {description, rights}, assumptions,
     market_analysis, approaches {selection_justification, rejected, rejected_comment,
-    calculations — результаты расчётов}, final_value (число), limits_of_use, documents,
+    calculations — результаты расчётов}, final_value (число), limits_of_use, value_interval
+    {low, high, justification} — для недвижимости по ФСО №7, п. 30 (если задание не указывает
+    иное: assignment.interval_not_required = true), documents,
     sources [{url или reference, date}], signing {form: paper | electronic, confirmed: [...]}:
     paper — pages_numbered, bound, signed, sealed; electronic — appraiser_qualified_signature,
     employer_signature. Результат: missing (с пунктами ФСО VI), can_issue, checks (расчёты
@@ -439,6 +443,7 @@ def rf_reconcile_approaches(
     justification: Optional[str] = None,
     currency: str = "RUB",
     divergence_base: str = "min",
+    value_interval: Optional[dict] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Согласование результатов подходов (ФСО V, п. 3). Механическое усреднение не допускается.
@@ -450,9 +455,17 @@ def rf_reconcile_approaches(
     исключённые весом 0; исключение подхода требует justification. Выше порога без
     justification — статус «согласование не автоматизировано», reconciled_value = null,
     взвешенное число — только weighted_value_diagnostic. approaches_spread — разброс
-    подходов, не интервал стоимости."""
+    подходов, не интервал стоимости. value_interval {low, high, justification} — суждение
+    оценщика о границах интервала стоимости (ФСО №7, п. 30); задаёт только оценщик."""
     return rf.reconcile_approaches(
-        approach_values, weights, max_divergence_pct, justification, currency, divergence_base, context=context
+        approach_values,
+        weights,
+        max_divergence_pct,
+        justification,
+        currency,
+        divergence_base,
+        value_interval,
+        context=context,
     )
 
 

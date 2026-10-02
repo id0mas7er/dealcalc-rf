@@ -53,6 +53,7 @@ def _report(**changes):
         },
         "final_value": 10_000_000,
         "limits_of_use": "для залога, 6 месяцев",
+        "value_interval": {"low": 9_500_000, "high": 10_500_000, "justification": "разброс аналогов"},
         "documents": ["выписка ЕГРН"],
         "sources": [{"url": "https://www.cian.ru/sale/flat/1", "date": "2026-09-20"}],
         "signing": {"form": "electronic", "confirmed": ["appraiser_qualified_signature", "employer_signature"]},
@@ -139,3 +140,18 @@ def test_invalid_assignment_in_report():
 def test_report_must_be_an_object():
     with pytest.raises(ValueError, match="report"):
         rf.check_report([])
+
+
+def test_real_estate_report_needs_value_interval():
+    report = _report()
+    report.pop("value_interval")
+
+    assert any("п. 30" in item for item in rf.check_report(report)["missing"])
+    report["assignment"] = {**ASSIGNMENT, "interval_not_required": True}
+    assert not any("п. 30" in item for item in rf.check_report(report)["missing"])
+
+
+def test_final_value_outside_interval_is_checked():
+    result = rf.check_report(_report(value_interval={"low": 1, "high": 2, "justification": "x"}))
+
+    assert any("вне интервала" in check for check in result["checks"])

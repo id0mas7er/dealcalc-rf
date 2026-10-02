@@ -99,7 +99,9 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
     ``rights``), ``assumptions``, ``market_analysis``, ``approaches``
     (``selection_justification``, ``rejected`` — approaches not used, with
     ``rejected_comment``, ``calculations`` — results of this library), ``final_value``,
-    ``limits_of_use``, ``documents``, ``sources`` (п. 8: each with ``url`` or
+    ``limits_of_use``, ``value_interval`` (``low``, ``high``,
+    ``justification``; required for real estate by ФСО №7, п. 30 unless the
+    assignment sets ``interval_not_required``), ``documents``, ``sources`` (п. 8: each with ``url`` or
     ``reference`` and ``date``) and ``signing`` (``form``: ``paper`` or
     ``electronic`` and the confirmed requirements of пп. 4–5).
 
@@ -189,6 +191,28 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
 
     final_value = report.get("final_value")
     form_given = isinstance(assignment, Mapping) and _present(assignment.get("final_value_form"))
+
+    # ФСО №7, п. 30: for real estate, the appraiser's judgment of the bounds of
+    # the interval, unless the assignment says otherwise.
+    interval = report.get("value_interval")
+    real_estate = isinstance(assignment, Mapping) and assignment.get("object_type") == "real_estate"
+    if real_estate and not (isinstance(assignment, Mapping) and assignment.get("interval_not_required") is True):
+        missing_bounds = not isinstance(interval, Mapping) or not all(
+            _present(interval.get(key)) for key in ("low", "high", "justification")
+        )
+        if missing_bounds:
+            missing.append(
+                "ФСО №7, п. 30 value_interval — суждение о границах интервала стоимости "
+                "(low, high, justification), если задание не указывает иное (interval_not_required)"
+            )
+    if (
+        isinstance(interval, Mapping)
+        and isinstance(final_value, (int, float))
+        and not isinstance(final_value, bool)
+        and all(isinstance(interval.get(key), (int, float)) for key in ("low", "high"))
+        and not interval["low"] <= final_value <= interval["high"]
+    ):
+        checks.append("ФСО №7, п. 30: итоговая стоимость вне интервала value_interval.")
     if _present(final_value) and not form_given and (
         isinstance(final_value, bool) or not isinstance(final_value, (int, float))
     ):

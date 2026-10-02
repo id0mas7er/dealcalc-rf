@@ -58,6 +58,25 @@ def adjustment_steps(comparable: Mapping[str, Any], prefix: str) -> List[Dict[st
     return list(steps)
 
 
+def _effective_count(applied: Sequence[Mapping[str, Any]]) -> int:
+    """Adjustments that change the price; a run of ``pct_group`` steps is one
+    adjustment, so the count does not depend on how a group is written."""
+
+    count = 0
+    group_changed = None
+    for record in applied:
+        if record["type"] == "pct_group":
+            group_changed = bool(group_changed) or record["change"] != 0
+            continue
+        if group_changed is not None:
+            count += group_changed
+            group_changed = None
+        count += record["change"] != 0
+    if group_changed is not None:
+        count += group_changed
+    return count
+
+
 def apply_adjustments(
     base_price: float, steps: Sequence[Any], prefix: str
 ) -> Dict[str, Any]:
@@ -164,8 +183,7 @@ def apply_adjustments(
     return {
         "adjusted_price": price,
         "adjustments": applied,
-        # Steps that change the price; zero steps do not count.
-        "adjustments_count": sum(1 for record in applied if record["change"] != 0),
+        "adjustments_count": _effective_count(applied),
         "net_adjustment_pct": _share_pct(price - base_price, base_price),
         "gross_adjustment_pct": _share_pct(gross_change, base_price),
     }
