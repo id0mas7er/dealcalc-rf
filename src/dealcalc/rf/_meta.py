@@ -160,7 +160,7 @@ def method_card(
             checks = list(result.pop("checks", [])) + _vat_checks(assignment, result)
             guardrails = list(result.pop("guardrails", []))
             conditions = list(result.pop("conditions", []))
-            guardrails += offer_guardrails(result)
+            guardrails += offer_guardrails(result) + identifier_guardrails(result)
             if context_reminder:
                 guardrails += _context_guardrails(assignment)
             status = result.pop("status", None) or (STATUS_REVIEW if checks else STATUS_DRAFT)
@@ -189,6 +189,7 @@ def method_card(
 
 OBSERVATION_FIELDS = (
     "source", "date", "url", "price_type", "conditions", "reliability", "import_warnings",
+    "listing_id_basis",
 )
 _PRICE_TYPES = {
     "сделка": "сделка",
@@ -272,6 +273,23 @@ def offer_guardrails(result: Mapping[str, Any]) -> List[str]:
     return [
         f"Аналоги {offers} — цены предложения: обоснуйте скидку к цене сделки, "
         "срок экспозиции и изменение цены."
+    ]
+
+
+def identifier_guardrails(result: Mapping[str, Any]) -> List[str]:
+    """Reminder for imported analogs identified by their characteristics."""
+
+    items = result.get("comparables") or result.get("analogs") or []
+    built = [
+        item.get("index")
+        for item in items
+        if isinstance(item, Mapping) and item.get("listing_id_basis") == "characteristics"
+    ]
+    if not built:
+        return []
+    return [
+        f"Идентификатор аналогов {built} построен по характеристикам (нет номера "
+        "объявления, ссылки, VIN или кадастрового номера): проверьте дубли вручную."
     ]
 
 
