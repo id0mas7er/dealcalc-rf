@@ -357,7 +357,8 @@ def vehicle_comparative_approach(
         "weighted_median_price": money(_weighted_median(weighted_items)),
         "weighted_mean_price": money(weighted_mean),
         "indicated_value": money(_weighted_median(weighted_items)),
-        "indicated_value_range": {
+        # The spread of analogs, not an interval of value.
+        "analogs_spread": {
             "low": money(min(adjusted_prices)),
             "high": money(max(adjusted_prices)),
         },

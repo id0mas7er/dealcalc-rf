@@ -97,7 +97,7 @@ def business_income_approach(
     basis: str,
     terminal_value: float = 0,
     mid_year: bool = False,
-    obligations_not_in_flows: float = 0,
+    obligations_not_in_flows: Optional[float] = None,
     non_operating_assets: float = 0,
     non_operating_liabilities: float = 0,
     currency: str = "RUB",
@@ -127,7 +127,11 @@ def business_income_approach(
     flows = [_number(f"cash_flows[{index}]", flow) for index, flow in enumerate(cash_flows)]
     rate = _rate("discount_rate_pct", discount_rate_pct) / 100
     terminal = _number("terminal_value", terminal_value)
-    obligations = _non_negative("obligations_not_in_flows", obligations_not_in_flows)
+    # None is unknown, 0 is a confirmed absence of obligations outside the flows.
+    obligations_unknown = obligations_not_in_flows is None
+    obligations = 0.0 if obligations_unknown else _non_negative(
+        "obligations_not_in_flows", obligations_not_in_flows
+    )
     nop_assets = _non_negative("non_operating_assets", non_operating_assets)
     nop_liabilities = _non_negative("non_operating_liabilities", non_operating_liabilities)
     if chosen_basis == "equity" and obligations:
@@ -159,6 +163,11 @@ def business_income_approach(
     checks = []
     if equity < 0:
         checks.append("Стоимость собственного капитала отрицательна: проверьте прогноз и обязательства.")
+    if chosen_basis == "invested_capital" and obligations_unknown:
+        checks.append(
+            "Не указаны обязательства, не отражённые в FCFF (obligations_not_in_flows): "
+            "процентный долг из FCFF не вычтен; если таких обязательств нет — передайте 0."
+        )
     return {
         "approach": "income",
         "basis": chosen_basis,
@@ -249,6 +258,18 @@ def business_multiples(
     chosen = statistics.median(multiples) if statistic == "median" else statistics.mean(multiples)
     multiple_variation = variation(multiples)
     checks = observation_checks(items) + variation_checks(multiple_variation, len(items))
+    # The name does not set the basis, but an obvious contradiction is reported.
+    numerator = multiple_name.strip().upper().split("/")[0].strip()
+    if numerator == "EV" and chosen_basis == "equity":
+        checks.append(
+            f"Мультипликатор {multiple_name.strip()} — от стоимости инвестированного капитала (EV), "
+            "а база basis = equity: проверьте базу или выполните переход к собственному капиталу."
+        )
+    if numerator in ("P", "MCAP") and chosen_basis == "invested_capital":
+        checks.append(
+            f"Мультипликатор {multiple_name.strip()} — от собственного капитала, а база "
+            "basis = invested_capital: проверьте базу."
+        )
     return {
         "approach": "comparative",
         "multiple_name": multiple_name.strip(),
@@ -530,6 +551,8 @@ def business_interest_value(
     share_pct: float,
     adjustments: Optional[Sequence[Mapping[str, Any]]] = None,
     currency: str = "RUB",
+    value_basis: Optional[str] = None,
+    net_debt: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Move from 100% of equity to the value of a specific interest.
 
@@ -537,13 +560,34 @@ def business_interest_value(
     step adjustments (``{"name", "type": "pct" | "abs", "value"}``) such as
     control or liquidity discounts; each must be justified by the rights of
     the interest and market evidence. None is applied automatically.
+
+    ``value_basis`` names what ``value_100pct`` is: ``equity`` or
+    ``invested_capital`` (EV). From EV the bridge to equity is explicit:
+    ``equity = EV − net_debt``, and ``net_debt`` is then required.
     """
 
     total = _non_negative("value_100pct", value_100pct)
+    checks = []
+    if value_basis is None:
+        checks.append(
+            "Не указана база value_100pct (value_basis): доля считается от собственного "
+            "капитала; если это EV — передайте value_basis = invested_capital и net_debt."
+        )
+        equity_value = total
+    elif value_basis == "equity":
+        equity_value = total
+    elif value_basis == "invested_capital":
+        if net_debt is None:
+            raise ValueError("net_debt is required to bridge from invested capital (EV) to equity")
+        equity_value = total - _number("net_debt", net_debt)
+        if equity_value < 0:
+            raise ValueError("equity value after net_debt is negative")
+    else:
+        raise ValueError("value_basis must be 'equity' or 'invested_capital'")
     share = _non_negative("share_pct", share_pct)
     if share > 100:
         raise ValueError("share_pct must be at most 100")
-    pro_rata = total * share / 100
+    pro_rata = equity_value * share / 100
     steps = list(adjustments or [])
     if steps and pro_rata == 0:
         raise ValueError("adjustments require a positive pro-rata value")
@@ -554,6 +598,9 @@ def business_interest_value(
     return {
         "currency": _currency(currency),
         "value_100pct": money(total),
+        "value_basis": value_basis,
+        "net_debt": None if net_debt is None else money(_number("net_debt", net_debt)),
+        "equity_value_100pct": money(equity_value),
         "share_pct": round(share, 4),
         "pro_rata_value": money(pro_rata),
         "adjustments": adjusted["adjustments"],
@@ -563,5 +610,5 @@ def business_interest_value(
         ]
         if steps
         else [],
-        "checks": [],
+        "checks": checks,
     }

@@ -23,7 +23,7 @@ def test_comparative_approach_preserves_adjustments_and_range():
     assert result["weighted_unit_price"] == pytest.approx(203_333.33, abs=0.01)
     # rounded unit price 203 333.33 × 50 m²
     assert result["indicated_value"] == 10_166_666.5
-    assert result["indicated_value_range"] == {"low": 9_500_000.0, "high": 10_500_000.0}
+    assert result["analogs_spread"] == {"low": 9_500_000.0, "high": 10_500_000.0}
 
 
 def test_comparative_approach_requires_positive_subject_area():
@@ -159,12 +159,13 @@ def test_reconcile_divergence_with_justification_needs_review():
 
 
 def test_reconcile_can_select_one_approach():
-    result = reconcile_approaches({"a": 100, "b": 300}, {"a": 1, "b": 0}, 10)
+    result = reconcile_approaches(
+        {"a": 100, "b": 300}, {"a": 1, "b": 0}, 10, justification="подход b неприменим"
+    )
 
     assert result["reconciled_value"] == 100.0
-    assert result["divergence_pct"] == 0.0
-    assert result["status"] == "черновой расчёт"
-    assert "весом 0" in result["guardrails"][0]
+    assert result["divergence_pct"] == 200.0
+    assert result["status"] == "нужна проверка оценщика"
 
 
 def test_income_capitalization_rejects_negative_noi():

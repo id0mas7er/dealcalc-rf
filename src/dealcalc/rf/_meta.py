@@ -12,7 +12,7 @@ import functools
 import math
 from datetime import date, datetime
 from collections.abc import Mapping
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence
 
 from ._adjustments import json_value
 
@@ -27,7 +27,17 @@ FORMULA_RECOMMENDATION = "частная методическая рекомен
 FORMULA_METHODICAL = "методическая формула учебного источника, не норма ФСО"
 
 
-VALUE_TYPES = ("рыночная", "инвестиционная", "равновесная", "ликвидационная")
+# ФСО II types of value plus special legal values (ДСД) and "иная" for
+# other values required by law or the assignment.
+VALUE_TYPES = (
+    "рыночная", "инвестиционная", "равновесная", "ликвидационная",
+    "действительная стоимость доли", "иная",
+)
+# Results of a specific kind need the matching type of value in the context.
+_KIND_VALUE_TYPES = {
+    "ликвидационная стоимость": "ликвидационная",
+    "действительная стоимость доли (ДСД)": "действительная стоимость доли",
+}
 VAT_MODES = {
     "included": "с НДС",
     "excluded": "без НДС",
@@ -132,6 +142,106 @@ def _vat_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[s
     return checks
 
 
+def _parse_date(value: Any) -> Optional[date]:
+    text = str(value).strip()
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(text, "%d.%m.%Y").date()
+    except ValueError:
+        return None
+
+
+def _observations(result: Mapping[str, Any]) -> List[Mapping[str, Any]]:
+    items = result.get("comparables") or result.get("analogs") or []
+    return [item for item in items if isinstance(item, Mapping)]
+
+
+def _later_price_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[str]:
+    """Prices dated after the valuation date (ФСО III, п. 12; ФСО №10, п. 12)."""
+
+    if not context.get("valuation_date"):
+        return []
+    valuation = date.fromisoformat(context["valuation_date"])
+    later = [
+        item.get("index")
+        for item in _observations(result)
+        if item.get("date") and (_parse_date(item["date"]) or valuation) > valuation
+    ]
+    if not later:
+        return []
+    return [
+        f"Цены аналогов {later} датированы позже даты оценки: обоснуйте, что они отражают "
+        "состояние рынка на дату оценки, скорректируйте на дату или исключите (ФСО III, п. 12)."
+    ]
+
+
+def _kind_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[str]:
+    """The kind of the result against the type of value in the assignment."""
+
+    required = _KIND_VALUE_TYPES.get(result.get("value_kind"))
+    value_type = context.get("value_type")
+    if not required or not value_type or value_type.startswith(required):
+        return []
+    label = "ДСД" if required.startswith("действительн") else required
+    return [
+        f"Результат — {result['value_kind']}, а в задании вид стоимости «{value_type}»: "
+        f"проверьте задание ({label} — отдельная величина, ФСО II)."
+    ]
+
+
+_VAT_INCLUDED = ("с ндс", "включая ндс", "в т.ч. ндс", "в том числе ндс", "вкл. ндс")
+_VAT_EXCLUDED = ("без ндс", "не облагается ндс", "ндс не облагается", "без учета ндс", "без учёта ндс")
+
+
+def _analog_vat(item: Mapping[str, Any]) -> Optional[str]:
+    if item.get("vat") in VAT_MODES:
+        return item["vat"]
+    text = str(item.get("conditions") or "").lower()
+    if any(marker in text for marker in _VAT_EXCLUDED):
+        return "excluded"
+    if any(marker in text for marker in _VAT_INCLUDED):
+        return "included"
+    return None
+
+
+def _analog_vat_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[str]:
+    """VAT basis of every analog price: one basis, matching the assignment."""
+
+    bases: Dict[str, List[Any]] = {}
+    for item in _observations(result):
+        vat = _analog_vat(item)
+        if vat:
+            bases.setdefault("excluded" if vat == "not_applicable" else vat, []).append(item.get("index"))
+    checks = []
+    if "included" in bases and "excluded" in bases:
+        checks.append(
+            f"Цены аналогов {bases['included']} — с НДС, {bases['excluded']} — без НДС: "
+            "приведите их к одной базе."
+        )
+    expected = context.get("vat")
+    if expected:
+        expected = "excluded" if expected == "not_applicable" else expected
+        other = [index for basis, indices in bases.items() if basis != expected for index in indices]
+        if other and len(bases) == 1:
+            checks.append(
+                f"Цены аналогов {other} — {VAT_MODES[next(iter(bases))]}, а в задании "
+                f"«{context['vat_label']}»: приведите цены к базе задания."
+            )
+    return checks
+
+
+def _weighting_guardrails(result: Mapping[str, Any]) -> List[str]:
+    if result.get("weighting") not in ("inverse_gross", "inverse_count"):
+        return []
+    return [
+        "Автоматические веса аналогов — эвристика, а не мера достоверности: обоснуйте выбор "
+        "правила или задайте веса вручную."
+    ]
+
+
 def method_card(
     method_id: str,
     standard: str,
@@ -158,9 +268,12 @@ def method_card(
             assignment = assignment_context(context)
             result = dict(func(*args, **kwargs))
             checks = list(result.pop("checks", [])) + _vat_checks(assignment, result)
+            checks += _later_price_checks(assignment, result) + _kind_checks(assignment, result)
+            checks += _analog_vat_checks(assignment, result)
             guardrails = list(result.pop("guardrails", []))
             conditions = list(result.pop("conditions", []))
             guardrails += offer_guardrails(result) + identifier_guardrails(result)
+            guardrails += _weighting_guardrails(result)
             if context_reminder:
                 guardrails += _context_guardrails(assignment)
             status = result.pop("status", None) or (STATUS_REVIEW if checks else STATUS_DRAFT)
@@ -189,7 +302,7 @@ def method_card(
 
 OBSERVATION_FIELDS = (
     "source", "date", "url", "price_type", "conditions", "reliability", "import_warnings",
-    "listing_id_basis",
+    "listing_id_basis", "listing_id", "address", "vat",
 )
 _PRICE_TYPES = {
     "сделка": "сделка",
@@ -298,9 +411,9 @@ def variation_checks(variation: Mapping[str, Any], sample_size: int) -> List[str
 
     if sample_size < 2:
         return ["Один аналог: разброс и однородность выборки не оцениваются."]
-    if variation.get("homogeneous") is False:
+    if variation.get("within_threshold") is False:
         return [
-            f"Выборка неоднородна: коэффициент вариации {variation['coefficient_pct']}% "
-            f"больше {variation['threshold_pct']}%."
+            f"Коэффициент вариации {variation['coefficient_pct']}% больше {variation['threshold_pct']}%: "
+            "проверьте сопоставимость аналогов по ценообразующим факторам."
         ]
     return []

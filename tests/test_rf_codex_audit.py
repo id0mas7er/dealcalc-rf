@@ -264,7 +264,7 @@ def test_valid_price_dates_pass(good):
 def test_homogeneity_compares_unrounded_coefficient():
     result = variation([100, 160.88])
 
-    assert result["homogeneous"] is False
+    assert result["within_threshold"] is False
 
 
 def test_docs_offer_prices_are_guardrails():

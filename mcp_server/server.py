@@ -306,12 +306,17 @@ def rf_cost_approach(
     entrepreneurial_profit_pct: float = 0,
     currency: str = "RUB",
     profit_base: str = "improvements",
+    total_depreciation_pct: Optional[float] = None,
+    external_obsolescence_amount: Optional[float] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Затратный подход для недвижимости (ФСО №7, п. 24 (г); ФСО V, пп. 24, 31, 33).
 
     V = земля + (затраты + прибыль предпринимателя) × (1 − Иф)(1 − Ифу)(1 − Иэ).
-    profit_base: improvements (ПП от затрат) | land_and_improvements (ПП от затрат и земли)."""
+    profit_base: improvements (ПП от затрат) | land_and_improvements (ПП от затрат и земли).
+    Перемножение износов — одна из моделей. Иначе: total_depreciation_pct — совокупный
+    износ по модели оценщика (вместо видов износа) или external_obsolescence_amount —
+    внешнее обесценение в рублях (вместо процента; вычитается из улучшений)."""
     return rf.cost_approach(
         replacement_cost,
         land_value,
@@ -321,6 +326,8 @@ def rf_cost_approach(
         entrepreneurial_profit_pct,
         currency,
         profit_base,
+        total_depreciation_pct,
+        external_obsolescence_amount,
         context=context,
     )
 
@@ -360,8 +367,11 @@ def rf_reconcile_approaches(
     weights — веса оценщика с суммой 1, вес 0 исключает подход. max_divergence_pct —
     порог существенного расхождения: по умолчанию 30 % (существенно — более 30 %),
     другой — по указанию оценщика; расхождение = (max − min) / база × 100,
-    divergence_base: min | mean | max. Выше порога без justification — статус
-    «согласование не автоматизировано»."""
+    divergence_base: min | mean | max. Расхождение считается по ВСЕМ подходам, включая
+    исключённые весом 0; исключение подхода требует justification. Выше порога без
+    justification — статус «согласование не автоматизировано», reconciled_value = null,
+    взвешенное число — только weighted_value_diagnostic. approaches_spread — разброс
+    подходов, не интервал стоимости."""
     return rf.reconcile_approaches(
         approach_values, weights, max_divergence_pct, justification, currency, divergence_base, context=context
     )
@@ -517,9 +527,11 @@ def rf_residual_value(
     salvage_value: float = 0,
     context: Optional[dict] = None,
 ) -> dict:
-    """Остаточная стоимость машины (ФСО №10, п. 14): V = ПВС × (1 − СО) + стоимость утилизации.
+    """Остаточная стоимость машины (ФСО №10, п. 14; формула (10) Козлова–Фролова).
 
-    Отрицательная стоимость утилизации — затраты на неё."""
+    V = ПВС × (1 − СО), но не ниже стоимости утилизации; при СО = 100 % V = ±утилизация
+    (отрицательная — затраты на неё). Утилизация не прибавляется: модель физического
+    износа (rf_physical_depreciation) уже оставляет её остатком в конце срока."""
     return rf.residual_value(replacement_cost, total_depreciation_pct, salvage_value, context=context)
 
 
@@ -572,7 +584,7 @@ def rf_business_income_approach(
     basis: str,
     terminal_value: float = 0,
     mid_year: bool = False,
-    obligations_not_in_flows: float = 0,
+    obligations_not_in_flows: Optional[float] = None,
     non_operating_assets: float = 0,
     non_operating_liabilities: float = 0,
     currency: str = "RUB",
@@ -584,7 +596,8 @@ def rf_business_income_approach(
     basis equity: FCFE по ставке на собственный капитал (обязательства не вычитаются —
     долг уже в потоке). basis invested_capital: FCFF по WACC → инвестированный капитал,
     затем вычитаются только обязательства, не учтённые в потоке (не весь балансовый
-    долг). Неоперационные активы и обязательства учитываются один раз.
+    долг). obligations_not_in_flows: не указано — неизвестно (замечание), 0 —
+    подтверждённое отсутствие. Неоперационные активы и обязательства учитываются один раз.
     cash_flows[0] — первый год. terminal_timing: end | mid."""
     return rf.business_income_approach(
         cash_flows,
@@ -684,12 +697,18 @@ def rf_business_interest_value(
     share_pct: float,
     adjustments: Optional[List[dict]] = None,
     currency: str = "RUB",
+    value_basis: Optional[str] = None,
+    net_debt: Optional[float] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Стоимость конкретной доли: 100% × доля, затем скидки и премии по шагам (pct | abs).
 
-    Ни одна скидка не применяется автоматически; каждую обосновать."""
-    return rf.business_interest_value(value_100pct, share_pct, adjustments, currency, context=context)
+    value_basis — что такое value_100pct: equity (собственный капитал) | invested_capital
+    (EV; тогда обязателен net_debt и собственный капитал = EV − net_debt). Без value_basis —
+    замечание. Ни одна скидка не применяется автоматически; каждую обосновать."""
+    return rf.business_interest_value(
+        value_100pct, share_pct, adjustments, currency, value_basis, net_debt, context=context
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -755,14 +774,17 @@ def rf_external_obsolescence_cost_income(
     cost_value_without_external: float,
     income_value_with_external: float,
     currency: str = "RUB",
+    land_value: float = 0,
     context: Optional[dict] = None,
 ) -> dict:
     """Внешнее обесценение (МРз–8/23-2, § 4.1): затратная стоимость без фактора − доходная с ним.
 
     Обе стоимости должны отличаться только внешним фактором — иначе двойной учёт износа.
-    Отрицательный результат показывается, а не превращается в скидку."""
+    Отрицательный результат показывается, а не превращается в скидку. Процент — от всей
+    затратной стоимости; при land_value возвращается и процент от улучшений
+    (external_obsolescence_pct_of_improvements) — его, или рубли, передавайте в rf_cost_approach."""
     return rf.external_obsolescence_cost_income(
-        cost_value_without_external, income_value_with_external, currency, context=context
+        cost_value_without_external, income_value_with_external, currency, land_value, context=context
     )
 
 

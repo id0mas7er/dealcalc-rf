@@ -113,11 +113,12 @@ def test_residual_value_with_salvage():
     result = residual_value(1_000_000, 37, salvage_value=30_000)
 
     assert result["depreciated_value"] == 630_000.0
-    assert result["residual_value"] == 660_000.0
+    assert result["residual_value"] == 630_000.0
 
 
 def test_residual_value_with_disposal_cost():
-    assert residual_value(1_000_000, 90, salvage_value=-20_000)["residual_value"] == 80_000.0
+    assert residual_value(1_000_000, 90, salvage_value=-20_000)["residual_value"] == 100_000.0
+    assert residual_value(1_000_000, 100, salvage_value=-20_000)["residual_value"] == -20_000.0
 
 
 def test_cost_from_price_with_vat():

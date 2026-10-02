@@ -158,7 +158,8 @@ def test_deferred_tax_effect_requires_equal_lengths():
 
 def test_business_interest_value_with_discount():
     result = business_interest_value(
-        1_000, 25, [{"name": "Скидка за недостаточную ликвидность", "type": "pct", "value": -15}]
+        1_000, 25, [{"name": "Скидка за недостаточную ликвидность", "type": "pct", "value": -15}],
+        value_basis="equity",
     )
 
     assert result["pro_rata_value"] == 250.0
@@ -169,7 +170,7 @@ def test_business_interest_value_with_discount():
 
 
 def test_business_interest_value_without_adjustments():
-    result = business_interest_value(1_000, 25)
+    result = business_interest_value(1_000, 25, value_basis="equity")
 
     assert result["interest_value"] == 250.0
     assert result["checks"] == []

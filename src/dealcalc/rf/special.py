@@ -237,21 +237,40 @@ def external_obsolescence_cost_income(
     cost_value_without_external: float,
     income_value_with_external: float,
     currency: str = "RUB",
+    land_value: float = 0,
 ) -> Dict[str, Any]:
     """External obsolescence as the gap between the cost value without the
     external factor and the income value with it (grid assets with rare
-    paired sales). The factor must not be counted twice."""
+    paired sales). The factor must not be counted twice.
+
+    The percent is of the whole cost value. When the loss belongs to the
+    improvements only and the cost value includes land, give
+    ``land_value``: the percent of improvements is then returned for
+    :func:`cost_approach`, which applies external depreciation to the
+    improvements; or pass the money loss as ``external_obsolescence_amount``.
+    """
 
     cost = _positive("cost_value_without_external", cost_value_without_external)
     income = _non_negative("income_value_with_external", income_value_with_external)
+    land = _non_negative("land_value", land_value)
+    if land >= cost:
+        raise ValueError("land_value must be less than cost_value_without_external")
     amount = cost - income
+    improvements = cost - land
     return {
         "currency": _currency(currency),
         "cost_value_without_external": money(cost),
         "income_value_with_external": money(income),
         "external_obsolescence": money(amount),
         "external_obsolescence_pct": money(amount / cost * 100),
+        "pct_base": "затратная стоимость объекта целиком",
+        "land_value": money(land),
+        "improvements_value": money(improvements),
+        "external_obsolescence_pct_of_improvements": round(amount / improvements * 100, 6),
         "guardrails": [
+            "Процент внешнего обесценения зависит от базы: в cost_approach он применяется "
+            "к улучшениям — передайте external_obsolescence_pct_of_improvements или "
+            "денежную потерю external_obsolescence_amount.",
             "Затратная и доходная стоимости должны отличаться только внешним фактором: если "
             "в затратной стоимости уже вычтены физический износ и функциональное устаревание, "
             "а доходная их не отражает (или наоборот), разница включит их повторно."

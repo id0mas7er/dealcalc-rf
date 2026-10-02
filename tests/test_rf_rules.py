@@ -83,7 +83,7 @@ def test_heterogeneous_sample_is_flagged():
         1, [{"price": 100, "area_sqm": 1, **FULL}, {"price": 300, "area_sqm": 1, **FULL}]
     )
 
-    assert any("неоднородна" in check for check in result["checks"])
+    assert any("Коэффициент вариации" in check for check in result["checks"])
 
 
 def test_vehicle_without_selection_limits_is_flagged():
@@ -170,7 +170,8 @@ def test_assignment_warnings():
     )
 
     assert any("ФСО II" in check for check in result["checks"])
-    assert any("ГГГГ-ММ-ДД" in check for check in result["checks"])
+    assert any("ГГГГ-ММ-ДД" in item for item in result["missing_critical"])
+    assert result["can_proceed"] is False
     assert any("Осмотр не проводился" in check for check in result["checks"])
 
 

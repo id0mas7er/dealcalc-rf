@@ -107,7 +107,7 @@ def test_coefficient_of_variation_flags_homogeneous_sample():
     assert result["variation"] == {
         "coefficient_pct": 16.67,
         "threshold_pct": 33.0,
-        "homogeneous": True,
+        "within_threshold": True,
     }
 
 
@@ -117,14 +117,14 @@ def test_coefficient_of_variation_flags_heterogeneous_vehicle_sample():
     )
 
     assert result["variation"]["coefficient_pct"] == 70.71
-    assert result["variation"]["homogeneous"] is False
+    assert result["variation"]["within_threshold"] is False
 
 
 def test_coefficient_of_variation_is_undefined_for_single_comparable():
     result = comparative_approach(1, [{"price": 100, "area_sqm": 1}])
 
     assert result["variation"]["coefficient_pct"] is None
-    assert result["variation"]["homogeneous"] is None
+    assert result["variation"]["within_threshold"] is None
 
 
 def test_indicated_value_matches_rounded_unit_price_times_area():

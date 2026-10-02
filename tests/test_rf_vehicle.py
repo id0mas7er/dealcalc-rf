@@ -50,7 +50,7 @@ def test_vehicle_comparative_approach_filters_and_uses_weighted_median():
     assert result["sample_size"] == 2
     assert result["rejected_count"] == 1
     assert result["indicated_value"] == 1_100_000.0
-    assert result["indicated_value_range"] == {"low": 1_000_000.0, "high": 1_100_000.0}
+    assert result["analogs_spread"] == {"low": 1_000_000.0, "high": 1_100_000.0}
 
 
 def test_vehicle_comparative_approach_reports_no_matches():

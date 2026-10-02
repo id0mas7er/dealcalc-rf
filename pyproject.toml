@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dealcalc"
-version = "0.3.7"
+version = "0.4.0"
 description = "Расчёты стоимости недвижимости и автомобилей для оценки в РФ, импорт аналогов и MCP для ИИ."
 readme = "README.md"
 requires-python = ">=3.9"

@@ -92,7 +92,7 @@ def test_cap_rate_extraction():
     assert result["min_cap_rate_pct"] == 10.0
     assert result["max_cap_rate_pct"] == 12.0
     assert result["variation"]["coefficient_pct"] == 9.09
-    assert result["variation"]["homogeneous"] is True
+    assert result["variation"]["within_threshold"] is True
 
 
 @pytest.mark.parametrize(

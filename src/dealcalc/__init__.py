@@ -8,6 +8,6 @@ from __future__ import annotations
 
 from . import rf
 
-__version__ = "0.3.7"
+__version__ = "0.4.0"
 
 __all__ = ["rf"]

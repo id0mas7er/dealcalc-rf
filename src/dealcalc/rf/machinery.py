@@ -310,7 +310,7 @@ def scrap_value(
 @method_card(
     "MACHINERY_COST",
     "ФСО №10, п. 14; ФСО V, пп. 24, 33; Козлов В.В., Фролов И.С. «Оценка машин и оборудования», формула (10)",
-    "V = C × (1 − СО) + Сут",
+    "C = ПВС × (1 − СО), не ниже ±УС; при СО = 100 % C = ±УС",
     FORMULA_TECHNICAL,
     source_url="https://srosovet.ru/activities/npa/fso-10/",
 )
@@ -319,8 +319,13 @@ def residual_value(
 ) -> Dict[str, Any]:
     """Residual (market) value with salvage value (formula 10).
 
-    ``value = replacement_cost * (1 - total_depreciation_pct / 100) + salvage_value``;
-    a negative ``salvage_value`` is a disposal cost.
+    ``value = replacement_cost * (1 - total_depreciation_pct / 100)``, but
+    not below ``salvage_value``; at 100 % depreciation the value equals
+    ``salvage_value`` (negative — a disposal cost). The salvage value is not
+    added on top: the linear model of physical depreciation (figure 6,
+    :func:`physical_depreciation`) already leaves it as the residual at the
+    end of economic life, so ``total_depreciation_pct`` must be measured
+    against the full replacement cost, salvage included.
     """
 
     cost = _non_negative("replacement_cost", replacement_cost)
@@ -329,12 +334,14 @@ def residual_value(
         raise ValueError("total_depreciation_pct must be in [0, 100]")
     salvage = _number("salvage_value", salvage_value)
     depreciated = cost * (1 - depreciation / 100)
+    floor_applied = depreciation == 100 or depreciated < salvage
     return {
         "replacement_cost": money(cost),
         "total_depreciation_pct": money(depreciation),
         "depreciated_value": money(depreciated),
         "salvage_value": money(salvage),
-        "residual_value": money(depreciated + salvage),
+        "salvage_floor_applied": floor_applied,
+        "residual_value": money(salvage if floor_applied else depreciated),
     }
 
 

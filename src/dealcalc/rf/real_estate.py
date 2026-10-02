@@ -203,7 +203,8 @@ def comparative_approach(
         "indicated_value": _round(weighted_unit_price * subject_area),
         "adjusted_unit_price_min": _round(min(adjusted_prices)),
         "adjusted_unit_price_max": _round(max(adjusted_prices)),
-        "indicated_value_range": {
+        # The spread of analogs, not an interval of value (ФСО №7, п. 30).
+        "analogs_spread": {
             "low": _round(min(adjusted_prices) * subject_area),
             "high": _round(max(adjusted_prices) * subject_area),
         },
@@ -576,6 +577,8 @@ def cost_approach(
     entrepreneurial_profit_pct: float = 0,
     currency: str = "RUB",
     profit_base: str = "improvements",
+    total_depreciation_pct: Optional[float] = None,
+    external_obsolescence_amount: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Calculate a residual improvement value plus land value.
 
@@ -590,9 +593,14 @@ def cost_approach(
     ``land_and_improvements`` (replacement cost + land value), as different
     methods do.
 
-    The depreciation components are combined multiplicatively. The selected
-    depreciation method, entrepreneurial profit and their evidence belong in
-    the appraisal assignment and report.
+    The depreciation components are combined multiplicatively by default.
+    That is one model, not a rule: when the kinds of depreciation overlap or
+    are measured against other bases, give ``total_depreciation_pct`` (the
+    combined depreciation by the appraiser's own model, instead of the
+    components) or the external loss in money, ``external_obsolescence_amount``
+    (subtracted from the improvements after physical and functional
+    depreciation, instead of ``external_depreciation_pct``). The selected
+    model and its evidence belong in the report.
     """
 
     replacement = _non_negative("replacement_cost", replacement_cost)
@@ -616,10 +624,38 @@ def cost_approach(
 
     entrepreneurial_profit = base * profit_pct / 100
     cost_with_profit = replacement + entrepreneurial_profit
-    remaining_share = (1 - physical / 100) * (1 - functional / 100) * (1 - external / 100)
-    total_depreciation = (1 - remaining_share) * 100
-
-    depreciated_improvements = cost_with_profit * remaining_share
+    external_amount = None
+    if total_depreciation_pct is not None:
+        if physical or functional or external or external_obsolescence_amount is not None:
+            raise ValueError(
+                "total_depreciation_pct replaces the components: leave physical, functional, "
+                "external depreciation and external_obsolescence_amount unset"
+            )
+        model = "total"
+        total_depreciation = _percentage(
+            "total_depreciation_pct", total_depreciation_pct, minimum=0, maximum=100
+        )
+        depreciated_improvements = cost_with_profit * (1 - total_depreciation / 100)
+    elif external_obsolescence_amount is not None:
+        if external:
+            raise ValueError(
+                "give external depreciation either as external_depreciation_pct or as "
+                "external_obsolescence_amount"
+            )
+        model = "multiplicative + external amount"
+        external_amount = _non_negative("external_obsolescence_amount", external_obsolescence_amount)
+        before_external = cost_with_profit * (1 - physical / 100) * (1 - functional / 100)
+        if external_amount > before_external:
+            raise ValueError("external_obsolescence_amount exceeds the depreciated improvements")
+        depreciated_improvements = before_external - external_amount
+        total_depreciation = (
+            (1 - depreciated_improvements / cost_with_profit) * 100 if cost_with_profit else 0.0
+        )
+    else:
+        model = "multiplicative"
+        remaining_share = (1 - physical / 100) * (1 - functional / 100) * (1 - external / 100)
+        total_depreciation = (1 - remaining_share) * 100
+        depreciated_improvements = cost_with_profit * remaining_share
     return {
         "approach": "cost",
         "currency": _currency(currency),
@@ -633,10 +669,19 @@ def cost_approach(
             "physical_pct": _round(physical),
             "functional_pct": _round(functional),
             "external_pct": _round(external),
+            "external_amount": None if external_amount is None else _round(external_amount),
             "total_pct": _round(total_depreciation),
+            "model": model,
         },
         "depreciated_improvements": _round(depreciated_improvements),
         "indicated_value": _round(land + depreciated_improvements),
+        "guardrails": [
+            "Перемножение видов износа — одна из моделей: если причины износа перекрываются "
+            "или проценты взяты от разных баз, задайте total_depreciation_pct или "
+            "external_obsolescence_amount."
+        ]
+        if model == "multiplicative" and sum(1 for pct in (physical, functional, external) if pct) > 1
+        else [],
     }
 
 
@@ -782,8 +827,9 @@ def reconcile_approaches(
     used = {name: value for name, value in values.items() if given[name] > 0}
     weight_total = sum(given.values())
     reconciled = sum(values[name] * given[name] for name in values) / weight_total
-    low, high = min(used.values()), max(used.values())
-    bases = {"min": low, "mean": sum(used.values()) / len(used), "max": high}
+    # Divergence over every calculated approach: a zero weight must not hide it.
+    low, high = min(values.values()), max(values.values())
+    bases = {"min": low, "mean": sum(values.values()) / len(values), "max": high}
     if divergence_base not in bases:
         raise ValueError("divergence_base must be 'min', 'mean' or 'max'")
     base = bases[divergence_base]
@@ -807,13 +853,19 @@ def reconcile_approaches(
                 "приведено обоснование оценщика."
             )
     excluded = [name for name in values if given[name] == 0]
+    if excluded and note is None:
+        checks.append(
+            f"Подходы {excluded} исключены (вес 0) без обоснования: приведите причину "
+            "отказа (justification)."
+        )
 
     result: Dict[str, Any] = {
         "currency": _currency(currency),
         "approach_values": {name: _round(value) for name, value in values.items()},
         "weights": given,
         "weight_shares": dict(zip(given, weight_shares(list(given.values())))),
-        "reconciled_value": _round(reconciled),
+        # An unresolved reconciliation has no final value, only a diagnostic number.
+        "reconciled_value": None if status == STATUS_NOT_RECONCILED else _round(reconciled),
         "deviation_from_reconciled_pct": {
             name: None if reconciled == 0 else _round((value - reconciled) / reconciled * 100)
             for name, value in used.items()
@@ -823,12 +875,9 @@ def reconcile_approaches(
         "divergence_formula": f"(max − min) / {divergence_base} × 100",
         "max_divergence_pct": _round(threshold),
         "justification": note,
-        "value_range": {"low": _round(low), "high": _round(high)},
-        "guardrails": (
-            [f"Подходы с весом 0 не участвуют в результате: {excluded}; причину отказа опишите."]
-            if excluded
-            else []
-        )
+        # The spread of the approaches, not an interval of value (ФСО №7, п. 30).
+        "approaches_spread": {"low": _round(low), "high": _round(high)},
+        "guardrails": []
         + (
             [
                 f"Порог существенного расхождения — {MATERIAL_DIVERGENCE_PCT:g} % по умолчанию; "
@@ -839,6 +888,8 @@ def reconcile_approaches(
         ),
         "checks": checks,
     }
+    if status == STATUS_NOT_RECONCILED:
+        result["weighted_value_diagnostic"] = _round(reconciled)
     if status is not None:
         result["status"] = status
     return result

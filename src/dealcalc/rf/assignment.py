@@ -20,7 +20,10 @@ _OBJECT_TYPES = {
     "vehicle": ("машины и оборудование (транспортное средство)", "ФСО №10"),
 }
 
-_VALUE_TYPES = ("рыночная", "инвестиционная", "равновесная", "ликвидационная")
+_VALUE_TYPES = (
+    "рыночная", "инвестиционная", "равновесная", "ликвидационная",
+    "действительная стоимость доли", "иная",
+)
 
 _CRITICAL = {
     "object_description": "объект оценки и его состав",
@@ -188,7 +191,9 @@ def check_assignment(assignment: Mapping[str, Any]) -> Dict[str, Any]:
         try:
             date.fromisoformat(str(raw_date))
         except ValueError:
-            checks.append(f"Дата оценки «{raw_date}» не в формате ГГГГ-ММ-ДД.")
+            missing_critical.append(
+                f"valuation_date — дата оценки «{raw_date}» не распознана (нужна ГГГГ-ММ-ДД)"
+            )
     if contract == "real_estate":
         raw_inspection = assignment.get("inspection_status")
         inspection = "false" if raw_inspection is False else str(raw_inspection or "").strip().lower()

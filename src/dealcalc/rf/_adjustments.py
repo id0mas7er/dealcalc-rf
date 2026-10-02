@@ -154,13 +154,18 @@ def apply_adjustments(
             price_after=money(new_price),
             change=money(change),
         )
+        # The evidence of the step travels with it into the result.
+        for key in ("source", "date", "justification"):
+            if step.get(key) not in (None, ""):
+                record[key] = str(step[key])
         applied.append(record)
         price = new_price
 
     return {
         "adjusted_price": price,
         "adjustments": applied,
-        "adjustments_count": len(applied),
+        # Steps that change the price; zero steps do not count.
+        "adjustments_count": sum(1 for record in applied if record["change"] != 0),
         "net_adjustment_pct": _share_pct(price - base_price, base_price),
         "gross_adjustment_pct": _share_pct(gross_change, base_price),
     }
@@ -220,10 +225,11 @@ def variation(prices: Sequence[float]) -> Dict[str, Any]:
     else:
         coefficient = statistics.stdev(prices) / statistics.mean(prices) * 100
     # The threshold is compared with the unrounded coefficient.
+    # A descriptive statistic: a low coefficient does not prove comparability.
     return {
         "coefficient_pct": None if coefficient is None else money(coefficient),
         "threshold_pct": HOMOGENEITY_THRESHOLD_PCT,
-        "homogeneous": None
+        "within_threshold": None
         if coefficient is None
         else coefficient <= HOMOGENEITY_THRESHOLD_PCT,
     }
