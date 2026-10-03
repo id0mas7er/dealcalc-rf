@@ -267,16 +267,23 @@ _CHOICE_TEXT = {
 
 
 def _step_range_review(result: Mapping[str, Any]) -> tuple:
-    """Adjustment steps whose value lies outside the bounds of their source."""
+    """Adjustment steps whose value lies outside the bounds of their source,
+    departs from the rule of choice or ends a cascade above the threshold —
+    in the analogs and at the root of the result (the value of an interest)."""
 
     checks: List[str] = []
     guardrails: List[str] = []
-    for item in _observations(result):
-        for step in item.get("adjustments") or []:
+    owners = [(f"Аналог {item.get('index')}, шаг", item) for item in _observations(result)]
+    owners.append(("Шаг", result))
+    for owner, item in owners:
+        steps = item.get("adjustments")
+        if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)):
+            continue
+        for step in steps:
             if not isinstance(step, Mapping):
                 continue
             value = step.get("value", step.get("exponent"))
-            label = f"Аналог {item.get('index')}, шаг «{step.get('name')}»"
+            label = f"{owner} «{step.get('name')}»"
             justified = bool(str(step.get("justification") or "").strip())
             choice = step.get("choice") or {}
             if step.get("selection") == "smallest_of_all":

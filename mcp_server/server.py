@@ -136,7 +136,7 @@ def rf_check_report(report: dict) -> dict:
     engaged_specialists (пустой список — их нет), standards, methodical_recommendations или
     recommendations_not_used_reason, object {description, rights}, assumptions,
     market_analysis, approaches {selection_justification, rejected, rejected_comment,
-    calculations — результаты расчётов}, final_value (число), limits_of_use, value_interval
+    calculations — результаты расчётов целиком, с method_card и status}, final_value (число), limits_of_use, value_interval
     {low, high, justification} — для недвижимости по ФСО №7, п. 30 (если задание не указывает
     иное: assignment.interval_not_required = true), documents,
     sources [{url или reference, date}], signing {form: paper | electronic, confirmed: [...]}:

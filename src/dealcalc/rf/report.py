@@ -186,10 +186,16 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
         raw_calculations = approaches.get("calculations") or []
         if isinstance(raw_calculations, Sequence) and not isinstance(raw_calculations, (str, bytes)):
             for index, item in enumerate(raw_calculations):
-                if isinstance(item, Mapping):
-                    calculations.append(item)
-                else:
+                card = item.get("method_card") if isinstance(item, Mapping) else None
+                if not isinstance(item, Mapping):
                     missing.append(f"п. 7 (13) approaches.calculations[{index}] — нужен результат расчёта (объект)")
+                elif not (isinstance(card, Mapping) and _present(card.get("id")) and _present(item.get("status"))):
+                    missing.append(
+                        f"п. 7 (13) approaches.calculations[{index}] — нет method_card.id или status: "
+                        "передайте результат расчёта целиком"
+                    )
+                else:
+                    calculations.append(item)
         if not calculations:
             missing.append("п. 7 (13) approaches.calculations — расчёты методов")
 

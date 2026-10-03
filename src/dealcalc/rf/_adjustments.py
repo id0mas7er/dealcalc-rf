@@ -80,6 +80,13 @@ _RANGE_NUMBERS = ("low", "high", "mean", "extended_low", "extended_high")
 CHOICE_THRESHOLD_PCT = 30.0
 
 
+def _within_threshold(size_pct: float) -> bool:
+    """An adjustment of exactly 30 % is within the threshold: 1.3 - 1 is not
+    exactly 0.3 in floating point."""
+
+    return size_pct <= CHOICE_THRESHOLD_PCT or math.isclose(size_pct, CHOICE_THRESHOLD_PCT, abs_tol=1e-9)
+
+
 def _step_size_pct(kind: str, value: float, price: float, step: Mapping[str, Any]) -> float:
     """Size of the adjustment of a step with this value, % of the price."""
 
@@ -94,7 +101,7 @@ def _step_size_pct(kind: str, value: float, price: float, step: Mapping[str, Any
 
 def _choice(kind: str, bounds: Mapping[str, Any], value: float, price: float, step: Mapping[str, Any]) -> Dict[str, Any]:
     at_mean = _step_size_pct(kind, bounds["mean"], price, step)
-    if at_mean <= CHOICE_THRESHOLD_PCT:
+    if _within_threshold(at_mean):
         expected, rule = bounds["mean"], "mean"
     else:
         extended = "extended_low" in bounds
@@ -361,21 +368,28 @@ def _staged_choice(price: float, stages: Any, prefix: str) -> tuple:
             adjusted = apply_adjustments(price, [{**variant, "name": label}], variant_prefix)
             factor = adjusted["adjusted_price"] / price
             current.append(
-                {"stage": stage_number, "label": label.strip(), "type": variant["type"], "factor": factor,
-                 "size": abs(factor - 1) * 100}
+                {"stage": stage_number, "label": label.strip(), "record": adjusted["adjustments"][0],
+                 "factor": factor, "size": abs(factor - 1) * 100}
             )
         evaluated += current
         best = min(current, key=lambda item: item["size"])
-        if best["size"] <= CHOICE_THRESHOLD_PCT:
+        if _within_threshold(best["size"]):
             return evaluated, best, "within_threshold"
     return evaluated, min(evaluated, key=lambda item: item["size"]), "smallest_of_all"
 
 
+# Prices of a variant evaluated alone; the step of the cascade holds the prices.
+_VARIANT_OMITTED = ("step", "name", "price_before", "price_after", "change")
+
+
 def _public_variant(item: Mapping[str, Any]) -> Dict[str, Any]:
+    """A variant with its inputs and evidence, so the choice can be verified."""
+
+    inputs = {key: value for key, value in item["record"].items() if key not in _VARIANT_OMITTED}
     return {
         "stage": item["stage"],
         "label": item["label"],
-        "type": item["type"],
+        **inputs,
         "factor": round(item["factor"], 4),
         "adjustment_pct": money(item["size"]),
     }
