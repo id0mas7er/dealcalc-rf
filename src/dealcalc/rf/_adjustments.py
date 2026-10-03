@@ -55,8 +55,10 @@ def source_range(name: str, bounds: Any) -> Dict[str, Any]:
             raise ValueError(f"{name}.mean must lie within low and high")
         result["mean"] = mean
     if any(bounds.get(key) not in (None, "") for key in ("extended_low", "extended_high")):
-        extended_low = _finite(f"{name}.extended_low", bounds.get("extended_low", low))
-        extended_high = _finite(f"{name}.extended_high", bounds.get("extended_high", high))
+        # An omitted or null endpoint keeps the bound of the interval.
+        given_low, given_high = bounds.get("extended_low"), bounds.get("extended_high")
+        extended_low = low if given_low in (None, "") else _finite(f"{name}.extended_low", given_low)
+        extended_high = high if given_high in (None, "") else _finite(f"{name}.extended_high", given_high)
         if extended_low > low or extended_high < high:
             raise ValueError(f"{name}: the extended interval must contain low and high")
         result.update(extended_low=extended_low, extended_high=extended_high)

@@ -224,6 +224,7 @@ def rf_net_operating_income(
     operating_expenses: Optional[List[dict]] = None,
     currency: str = "RUB",
     context: Optional[dict] = None,
+    *,
     source_ranges: Optional[dict] = None,
 ) -> dict:
     """Годовой ЧОД по шагам: ПВД → ДВД → ЧОД (ФСО V; ФСО №7, п. 23).
@@ -257,7 +258,7 @@ def rf_cap_rate_extraction(comparables: List[dict], context: Optional[dict] = No
 @tool
 def rf_income_capitalization(
     noi_annual: float, cap_rate_pct: float, currency: str = "RUB", flow_rate_basis: Optional[dict] = None,
-    context: Optional[dict] = None, source_ranges: Optional[dict] = None
+    context: Optional[dict] = None, *, source_ranges: Optional[dict] = None
 ) -> dict:
     """Прямая капитализация (ФСО V, п. 14): стоимость = годовой ЧОД / ставка капитализации."""
     return rf.income_capitalization(
@@ -516,6 +517,7 @@ def rf_asset_liquidation_value(
     forced_sale_discount_pct: Optional[float] = None,
     forced_sale_justification: Optional[str] = None,
     context: Optional[dict] = None,
+    *,
     source_ranges: Optional[dict] = None,
 ) -> dict:
     """Ликвидационная стоимость отдельного объекта (ФСО II): недвижимость, машина, автомобиль.

@@ -336,3 +336,23 @@ def test_mcp_context_stays_positional():
     context = {"valuation_date": "2026-10-01", "value_type": "рыночная"}
 
     assert server.rf_income_capitalization(1_000_000, 10, "RUB", None, context)["context"]["valuation_date"] == "2026-10-01"
+
+
+# Codex review of 0.8.x.
+
+
+def test_null_extended_endpoint_is_omitted():
+    _, step = _choice({
+        "name": "Торг", "type": "coef", "value": 0.85,
+        "range": {"low": 0.86, "high": 0.93, "extended_low": 0.84, "extended_high": None},
+    })
+
+    assert step["range"]["extended_high"] == 0.93
+    assert step["within_range"] is True
+
+
+def test_mcp_source_ranges_is_keyword_only():
+    server = pytest.importorskip("mcp_server.server", exc_type=ImportError)
+
+    with pytest.raises(TypeError):
+        server.rf_income_capitalization(1_000_000, 10, "RUB", None, None, {"cap_rate_pct": {"low": 7, "high": 13}})
