@@ -25,6 +25,7 @@ from ._adjustments import (
     sample_weights,
     apply_adjustments,
     money,
+    source_range,
     scaled_weights,
     variation,
     weight_shares,
@@ -290,8 +291,10 @@ def net_operating_income(
         ЧОД = ДВД − operating expenses
 
     ``operating_expenses`` is a list of ``{"name", "type", "value"}`` items:
-    ``abs`` is RUB per year, ``pct`` is a percent of ДВД. Every item is shown
-    in RUB in the result.
+    ``abs`` is RUB per year, ``pct`` is a percent of ДВД or, with ``"base":
+    "pgi"``, of ПВД (the shares of reference books). Every item is shown in
+    RUB in the result. An item may carry the bounds of its source
+    (``range``) and ``source``, ``date``, ``page``, ``justification``.
     """
 
     has_area_inputs = rentable_area_sqm is not None or rent_rate_sqm_year is not None
@@ -337,16 +340,34 @@ def net_operating_income(
             raise ValueError(f"{prefix}.name must be a non-empty string")
         kind = expense.get("type")
         value = _non_negative(f"{prefix}.value", expense.get("value"))
+        base = expense.get("base")
+        item: Dict[str, Any] = {"name": name.strip(), "type": kind, "value": _round(value)}
         if kind == "abs":
+            if base is not None:
+                raise ValueError(f"{prefix}.base applies to pct items")
             amount = value
         elif kind == "pct":
-            amount = egi * value / 100
+            base = "egi" if base is None else base
+            if base not in ("egi", "pgi"):
+                raise ValueError(f"{prefix}.base must be 'egi' or 'pgi'")
+            amount = (egi if base == "egi" else pgi) * value / 100
+            item["base"] = base
         else:
             raise ValueError(f"{prefix}.type must be 'abs' or 'pct'")
         total_expenses += amount
-        expenses.append(
-            {"name": name.strip(), "type": kind, "value": _round(value), "amount": _round(amount)}
-        )
+        item["amount"] = _round(amount)
+        if expense.get("range") is not None:
+            bounds = source_range(f"{prefix}.range", expense["range"])
+            item["range"] = {key: bounds[key] for key in ("low", "high", "mean", "extended_low", "extended_high")
+                             if key in bounds}
+            item["within_range"] = (
+                bounds.get("extended_low", bounds["low"]) <= value <= bounds.get("extended_high", bounds["high"])
+            )
+        for key in ("source", "date", "page", "justification"):
+            text = "" if expense.get(key) is None else str(expense[key]).strip()
+            if text:
+                item[key] = text
+        expenses.append(item)
 
     return {
         "approach": "income",

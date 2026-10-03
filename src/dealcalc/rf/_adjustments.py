@@ -69,6 +69,28 @@ def source_range(name: str, bounds: Any) -> Dict[str, Any]:
     return result
 
 
+def equation_domain(name: str, bounds: Any) -> Dict[str, Any]:
+    """Range of x on which a regression equation of a reference book was
+    built: ``{"low", "high"}``, either may be omitted (``null``)."""
+
+    if not isinstance(bounds, Mapping):
+        raise ValueError(f"{name} must be an object with low or high")
+    given = {key: bounds.get(key) for key in ("low", "high")}
+    if all(value in (None, "") for value in given.values()):
+        raise ValueError(f"{name} needs low or high")
+    result = {key: None if value in (None, "") else _finite(f"{name}.{key}", value) for key, value in given.items()}
+    if None not in result.values() and result["low"] > result["high"]:
+        raise ValueError(f"{name}.low must not exceed {name}.high")
+    return result
+
+
+def within_domain(domain: Mapping[str, Any], *values: float) -> bool:
+    return all(
+        (domain["low"] is None or domain["low"] <= value) and (domain["high"] is None or value <= domain["high"])
+        for value in values
+    )
+
+
 # The value of a step compared with the bounds of its source.
 _RANGE_VALUE = {"pct": "value", "pct_group": "value", "coef": "value", "abs": "value", "param": "exponent"}
 _RANGE_NUMBERS = ("low", "high", "mean", "extended_low", "extended_high")
@@ -197,7 +219,10 @@ def apply_adjustments(
     interval ``extended_low`` / ``extended_high``) holds the bounds of the
     source for the value of ``pct``, ``pct_group``, ``coef``, ``abs`` and the
     exponent of ``param``; ``within_range`` tells whether the value lies
-    within them (the extended interval, if given). With ``mean``, ``choice``
+    within them (the extended interval, if given). ``domain`` (``{"low",
+    "high"}``) of a ``param`` step is the range of x on which the equation was
+    built; ``within_domain`` tells whether the subject and the analog lie in
+    it. With ``mean``, ``choice``
     applies the rule of choice: an adjustment up to 30 % at the mean takes
     the mean, a larger one the point of the interval giving the smallest
     adjustment.
@@ -310,6 +335,12 @@ def apply_adjustments(
             price_after=money(new_price),
             change=money(change),
         )
+        if step.get("domain") is not None:
+            if kind != "param":
+                raise ValueError(f"{name_prefix}.domain applies to param steps")
+            domain = equation_domain(f"{name_prefix}.domain", step["domain"])
+            record["domain"] = domain
+            record["within_domain"] = within_domain(domain, record["subject"], record["analog"])
         if step.get("range") is not None:
             if kind not in _RANGE_VALUE:
                 raise ValueError(f"{name_prefix}.range applies to pct, pct_group, coef, abs and param steps")

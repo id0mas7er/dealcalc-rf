@@ -197,7 +197,8 @@ def rf_comparative_approach(
     идущие суммируются и применяются один раз), coef (value — коэффициент таблицы
     справочника, 0,94), ratio (subject, analog — коэффициенты объекта и аналога к одной
     базе: этаж, класс, индекс цен на дату), abs (руб./м²), param (subject, analog,
-    exponent — коэффициент торможения), staged (stages — этапы вариантов с label: среднее
+    exponent — коэффициент торможения; domain {low, high} — граница применимости
+    уравнения, вне её — замечание), staged (stages — этапы вариантов с label: среднее
     уравнение → уравнения границ → таблица; берётся первый этап с поправкой до 30 %,
     иначе наименьшая с justification), depreciation (analog_pct, subject_pct). У шага —
     source, date, page, justification и range {low, high, mean, extended_low,
@@ -234,7 +235,9 @@ def rf_net_operating_income(
 
     ПВД — готовой суммой или площадь × ставка аренды (руб./м² в год).
     ДВД = ПВД × (1 − недозагрузка) × (1 − недосбор) + прочие доходы.
-    operating_expenses: {"name", "type": "abs" (руб./год) | "pct" (% ДВД), "value"}."""
+    operating_expenses: {"name", "type": "abs" (руб./год) | "pct" (% ДВД; с "base": "pgi" —
+    % ПВД, как в справочнике), "value", range {low, high, mean} — границы справочника,
+    source, date, page, justification}."""
     return rf.net_operating_income(
         potential_gross_income,
         rentable_area_sqm,

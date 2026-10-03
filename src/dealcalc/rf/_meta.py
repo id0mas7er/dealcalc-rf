@@ -249,8 +249,23 @@ def _review(text: str, justified: bool) -> tuple:
     return [f"{text} — обоснуйте выбор (justification) или исправьте значение."], []
 
 
+def _out_of_range_text(label: str, value: Any, low: float, high: float) -> str:
+    return f"{label}: значение {value} вне границ источника [{low}; {high}]"
+
+
 def _out_of_range(label: str, value: Any, low: float, high: float, justified: bool) -> tuple:
-    return _review(f"{label}: значение {value} вне границ источника [{low}; {high}]", justified)
+    return _review(_out_of_range_text(label, value, low, high), justified)
+
+
+def _domain_text(label: str, step: Mapping[str, Any]) -> str:
+    domain = step["domain"]
+    bounds = "; ".join(
+        f"{word} {domain[key]}" for word, key in (("от", "low"), ("до", "high")) if domain[key] is not None
+    )
+    return (
+        f"{label}: объект {step['subject']}, аналог {step['analog']} — вне области применимости "
+        f"уравнения ({bounds})"
+    )
 
 
 _CHOICE_TEXT = {
@@ -268,15 +283,16 @@ _CHOICE_TEXT = {
 
 def _step_range_review(result: Mapping[str, Any]) -> tuple:
     """Adjustment steps whose value lies outside the bounds of their source,
-    departs from the rule of choice or ends a cascade above the threshold —
-    in the analogs and at the root of the result (the value of an interest)."""
+    departs from the rule of choice, ends a cascade above the threshold or
+    applies an equation outside its domain — in the analogs, at the root of
+    the result (the value of an interest) and in operating expenses."""
 
     checks: List[str] = []
     guardrails: List[str] = []
-    owners = [(f"Аналог {item.get('index')}, шаг", item) for item in _observations(result)]
-    owners.append(("Шаг", result))
-    for owner, item in owners:
-        steps = item.get("adjustments")
+    owners = [(f"Аналог {item.get('index')}, шаг", item, "adjustments") for item in _observations(result)]
+    owners += [("Шаг", result, "adjustments"), ("Статья расходов", result, "operating_expenses")]
+    for owner, item, key in owners:
+        steps = item.get(key)
         if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes)):
             continue
         for step in steps:
@@ -284,33 +300,31 @@ def _step_range_review(result: Mapping[str, Any]) -> tuple:
                 continue
             value = step.get("value", step.get("exponent"))
             label = f"{owner} «{step.get('name')}»"
-            justified = bool(str(step.get("justification") or "").strip())
             choice = step.get("choice") or {}
+            chosen = step.get("chosen") or {}
+            texts = []
             if step.get("selection") == "smallest_of_all":
-                chosen = step["chosen"]
-                found = _review(
+                texts.append(
                     f"{label}: все варианты дают поправку больше 30 % — взята наименьшая "
-                    f"({chosen['adjustment_pct']} %, «{chosen['label']}»)",
-                    justified,
+                    f"({chosen['adjustment_pct']} %, «{chosen['label']}»)"
                 )
-            elif "range" not in step:
-                continue
-            elif step.get("within_range") is False:
+            if step.get("within_domain") is False:
+                texts.append(_domain_text(label, step))
+            if chosen.get("within_domain") is False:
+                texts.append(_domain_text(f"{label}, вариант «{chosen['label']}»", chosen))
+            if step.get("within_range") is False:
                 bounds = step["range"]
-                found = _out_of_range(
-                    label,
-                    value,
-                    bounds.get("extended_low", bounds["low"]),
-                    bounds.get("extended_high", bounds["high"]),
-                    justified,
-                )
+                texts.append(_out_of_range_text(
+                    label, value, bounds.get("extended_low", bounds["low"]), bounds.get("extended_high", bounds["high"])
+                ))
             elif choice.get("follows_rule") is False:
                 rule = _CHOICE_TEXT[choice["rule"]].format(expected=choice["expected"])
-                found = _review(f"{label}: {rule}, взято {value}", justified)
-            else:
-                continue
-            checks += found[0]
-            guardrails += found[1]
+                texts.append(f"{label}: {rule}, взято {value}")
+            justified = bool(str(step.get("justification") or "").strip())
+            for text in texts:
+                found = _review(text, justified)
+                checks += found[0]
+                guardrails += found[1]
     return checks, guardrails
 
 
