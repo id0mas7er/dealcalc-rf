@@ -243,11 +243,27 @@ def _weighting_guardrails(result: Mapping[str, Any]) -> List[str]:
     ]
 
 
-def _out_of_range(label: str, value: Any, low: float, high: float, justified: bool) -> tuple:
-    text = f"{label}: значение {value} вне границ источника [{low}; {high}]"
+def _review(text: str, justified: bool) -> tuple:
     if justified:
         return [], [f"{text}; приведено обоснование оценщика."]
     return [f"{text} — обоснуйте выбор (justification) или исправьте значение."], []
+
+
+def _out_of_range(label: str, value: Any, low: float, high: float, justified: bool) -> tuple:
+    return _review(f"{label}: значение {value} вне границ источника [{low}; {high}]", justified)
+
+
+_CHOICE_TEXT = {
+    "mean": "по правилу выбора при поправке до 30 % берётся среднее {expected}",
+    "minimal_extended": (
+        "поправка больше 30 % — по правилу выбора берётся значение с минимальной поправкой "
+        "в расширенном интервале ({expected})"
+    ),
+    "minimal_interval": (
+        "поправка больше 30 % — по правилу выбора берётся значение с минимальной поправкой "
+        "в интервале ({expected})"
+    ),
+}
 
 
 def _step_range_review(result: Mapping[str, Any]) -> tuple:
@@ -257,13 +273,26 @@ def _step_range_review(result: Mapping[str, Any]) -> tuple:
     guardrails: List[str] = []
     for item in _observations(result):
         for step in item.get("adjustments") or []:
-            if not isinstance(step, Mapping) or step.get("within_range") is not False:
+            if not isinstance(step, Mapping) or "range" not in step:
                 continue
             value = step.get("value", step.get("exponent"))
             label = f"Аналог {item.get('index')}, шаг «{step.get('name')}»"
-            found = _out_of_range(
-                label, value, step["range"]["low"], step["range"]["high"], bool(step.get("justification"))
-            )
+            justified = bool(step.get("justification"))
+            choice = step.get("choice") or {}
+            if step.get("within_range") is False:
+                bounds = step["range"]
+                found = _out_of_range(
+                    label,
+                    value,
+                    bounds.get("extended_low", bounds["low"]),
+                    bounds.get("extended_high", bounds["high"]),
+                    justified,
+                )
+            elif choice.get("follows_rule") is False:
+                rule = _CHOICE_TEXT[choice["rule"]].format(expected=choice["expected"])
+                found = _review(f"{label}: {rule}, взято {value}", justified)
+            else:
+                continue
             checks += found[0]
             guardrails += found[1]
     return checks, guardrails
@@ -287,9 +316,11 @@ def _source_range_review(func: Callable[..., Any], args: tuple, kwargs: dict, ra
             raise ValueError(f"source_ranges: {name} is not a numeric parameter of this calculation")
         item = source_range(f"source_ranges.{name}", bounds)
         item["value"] = value
-        item["within_range"] = item["low"] <= value <= item["high"]
+        low = item.get("extended_low", item["low"])
+        high = item.get("extended_high", item["high"])
+        item["within_range"] = low <= value <= high
         if not item["within_range"]:
-            found = _out_of_range(name, value, item["low"], item["high"], "justification" in item)
+            found = _out_of_range(name, value, low, high, "justification" in item)
             checks += found[0]
             guardrails += found[1]
         review[name] = item

@@ -214,3 +214,100 @@ def test_mcp_tools_accept_source_ranges():
     result = server.rf_income_capitalization(1_000_000, 15, source_ranges={"cap_rate_pct": {"low": 7, "high": 13}})
 
     assert result["source_ranges"]["cap_rate_pct"]["within_range"] is False
+
+
+# Choice of the value within the reference-book interval (appraiser's practice):
+# an adjustment up to 30 % takes the mean; a larger one — the point of the
+# (extended) interval giving the smallest adjustment.
+
+
+def _choice(step):
+    result = rf.comparative_approach(100, [_analog([step])])
+    return result, result["comparables"][0]["adjustments"][0]
+
+
+def test_mean_is_taken_for_a_small_adjustment():
+    result, step = _choice({"name": "Торг", "type": "coef", "value": 0.90, "range": {"low": 0.86, "high": 0.93, "mean": 0.90}})
+
+    assert step["choice"] == {"expected": 0.9, "rule": "mean", "adjustment_at_mean_pct": 10.0, "follows_rule": True}
+    assert result["checks"] == [] or not any("правилу" in check for check in result["checks"])
+
+
+def test_other_point_than_the_mean_is_a_check():
+    result, step = _choice({"name": "Торг", "type": "coef", "value": 0.93, "range": {"low": 0.86, "high": 0.93, "mean": 0.90}})
+
+    assert step["choice"]["follows_rule"] is False
+    assert any("Торг" in check and "среднее" in check for check in result["checks"])
+
+
+def test_other_point_with_justification_is_a_reminder():
+    result, _ = _choice({
+        "name": "Торг", "type": "coef", "value": 0.93, "justification": "новый объект",
+        "range": {"low": 0.86, "high": 0.93, "mean": 0.90},
+    })
+
+    assert not any("среднее" in check for check in result["checks"])
+    assert any("среднее" in item for item in result["guardrails"])
+
+
+def test_large_adjustment_takes_the_smallest_in_the_extended_interval():
+    # Area 2000 vs 10000 m²: (0.2)^-0.25 = 1.50 at the mean, over 30 %.
+    step_data = {
+        "name": "Площадь", "type": "param", "subject": 2000, "analog": 10000, "value": None,
+        "range": {"low": -0.30, "high": -0.20, "mean": -0.25, "extended_low": -0.35, "extended_high": -0.10},
+    }
+    step_data.pop("value")
+    result, step = _choice({**step_data, "exponent": -0.10})
+
+    assert step["choice"]["rule"] == "minimal_extended"
+    assert step["choice"]["expected"] == -0.1
+    assert step["choice"]["follows_rule"] is True
+    assert step["within_range"] is True
+    assert not any("Площадь" in check for check in result["checks"])
+
+
+def test_large_adjustment_not_at_the_smallest_point_is_a_check():
+    result, step = _choice({
+        "name": "Площадь", "type": "param", "subject": 2000, "analog": 10000, "exponent": -0.25,
+        "range": {"low": -0.30, "high": -0.20, "mean": -0.25, "extended_low": -0.35, "extended_high": -0.10},
+    })
+
+    assert step["choice"]["follows_rule"] is False
+    assert any("Площадь" in check and "минимальн" in check for check in result["checks"])
+
+
+def test_large_adjustment_without_extended_interval_uses_the_interval():
+    _, step = _choice({"name": "Торг", "type": "pct", "value": -35, "range": {"low": -45, "high": -35, "mean": -40}})
+
+    assert step["choice"]["rule"] == "minimal_interval"
+    assert step["choice"]["expected"] == -35
+    assert step["choice"]["follows_rule"] is True
+
+
+def test_value_outside_the_extended_interval_is_a_bounds_check():
+    result, step = _choice({
+        "name": "Торг", "type": "coef", "value": 0.80,
+        "range": {"low": 0.86, "high": 0.93, "mean": 0.90, "extended_low": 0.84, "extended_high": 0.95},
+    })
+
+    assert step["within_range"] is False
+    assert any("границ" in check for check in result["checks"])
+
+
+def test_no_choice_rule_without_mean():
+    _, step = _choice({"name": "Торг", "type": "coef", "value": 0.93, "range": {"low": 0.86, "high": 0.93}})
+
+    assert "choice" not in step
+
+
+def test_mean_must_lie_within_the_interval():
+    with pytest.raises(ValueError, match="mean"):
+        _choice({"name": "Торг", "type": "coef", "value": 0.9, "range": {"low": 0.86, "high": 0.93, "mean": 0.95}})
+
+
+def test_extended_interval_must_contain_the_interval():
+    with pytest.raises(ValueError, match="extended"):
+        _choice({
+            "name": "Торг", "type": "coef", "value": 0.9,
+            "range": {"low": 0.86, "high": 0.93, "extended_low": 0.88, "extended_high": 0.95},
+        })

@@ -38,8 +38,9 @@ def _finite(name: str, value: Any) -> float:
 
 def source_range(name: str, bounds: Any) -> Dict[str, Any]:
     """Bounds of a value given by its source (a reference-book table):
-    ``{"low", "high"}`` with optional ``source``, ``date``, ``page`` and
-    ``justification`` of a value chosen outside them."""
+    ``{"low", "high"}`` with optional ``mean``, the extended interval
+    ``extended_low`` / ``extended_high``, ``source``, ``date``, ``page`` and
+    ``justification`` of a value chosen against the bounds or the rule."""
 
     if not isinstance(bounds, Mapping):
         raise ValueError(f"{name} must be an object with low and high")
@@ -48,6 +49,17 @@ def source_range(name: str, bounds: Any) -> Dict[str, Any]:
     if low > high:
         raise ValueError(f"{name}.low must not exceed {name}.high")
     result: Dict[str, Any] = {"low": low, "high": high}
+    if bounds.get("mean") not in (None, ""):
+        mean = _finite(f"{name}.mean", bounds["mean"])
+        if not low <= mean <= high:
+            raise ValueError(f"{name}.mean must lie within low and high")
+        result["mean"] = mean
+    if any(bounds.get(key) not in (None, "") for key in ("extended_low", "extended_high")):
+        extended_low = _finite(f"{name}.extended_low", bounds.get("extended_low", low))
+        extended_high = _finite(f"{name}.extended_high", bounds.get("extended_high", high))
+        if extended_low > low or extended_high < high:
+            raise ValueError(f"{name}: the extended interval must contain low and high")
+        result.update(extended_low=extended_low, extended_high=extended_high)
     for key in ("source", "date", "page", "justification"):
         if bounds.get(key) not in (None, ""):
             result[key] = str(bounds[key]).strip()
@@ -56,6 +68,45 @@ def source_range(name: str, bounds: Any) -> Dict[str, Any]:
 
 # The value of a step compared with the bounds of its source.
 _RANGE_VALUE = {"pct": "value", "pct_group": "value", "coef": "value", "abs": "value", "param": "exponent"}
+_RANGE_NUMBERS = ("low", "high", "mean", "extended_low", "extended_high")
+
+# Choice of the value within the interval of a reference book (the
+# appraiser's practice): an adjustment up to this size at the mean takes the
+# mean; a larger one takes the point of the interval (extended, if given)
+# giving the smallest adjustment.
+CHOICE_THRESHOLD_PCT = 30.0
+
+
+def _step_size_pct(kind: str, value: float, price: float, step: Mapping[str, Any]) -> float:
+    """Size of the adjustment of a step with this value, % of the price."""
+
+    if kind == "coef":
+        return abs(value - 1) * 100
+    if kind == "abs":
+        return abs(value) / price * 100
+    if kind == "param":
+        return abs((float(step["subject"]) / float(step["analog"])) ** value - 1) * 100
+    return abs(value)
+
+
+def _choice(kind: str, bounds: Mapping[str, Any], value: float, price: float, step: Mapping[str, Any]) -> Dict[str, Any]:
+    at_mean = _step_size_pct(kind, bounds["mean"], price, step)
+    if at_mean <= CHOICE_THRESHOLD_PCT:
+        expected, rule = bounds["mean"], "mean"
+    else:
+        extended = "extended_low" in bounds
+        low = bounds["extended_low"] if extended else bounds["low"]
+        high = bounds["extended_high"] if extended else bounds["high"]
+        # No adjustment: a coefficient of 1, a zero percent, amount or exponent.
+        neutral = 1.0 if kind == "coef" else 0.0
+        expected = min(max(neutral, low), high)
+        rule = "minimal_extended" if extended else "minimal_interval"
+    return {
+        "expected": expected,
+        "rule": rule,
+        "adjustment_at_mean_pct": money(at_mean),
+        "follows_rule": math.isclose(value, expected, rel_tol=1e-9, abs_tol=1e-12),
+    }
 
 
 def adjustment_steps(comparable: Mapping[str, Any], prefix: str) -> List[Dict[str, Any]]:
@@ -124,9 +175,14 @@ def apply_adjustments(
       subject and of the analog relative to one base (a floor, a class, a
       price index on the valuation date and on the price date).
 
-    ``range`` (``{"low", "high"}``) holds the bounds of the source for the
-    value of ``pct``, ``pct_group``, ``coef``, ``abs`` and the exponent of
-    ``param``; ``within_range`` tells whether the value lies within them.
+    ``range`` (``{"low", "high"}``, optional ``mean`` and the extended
+    interval ``extended_low`` / ``extended_high``) holds the bounds of the
+    source for the value of ``pct``, ``pct_group``, ``coef``, ``abs`` and the
+    exponent of ``param``; ``within_range`` tells whether the value lies
+    within them (the extended interval, if given). With ``mean``, ``choice``
+    applies the rule of choice: an adjustment up to 30 % at the mean takes
+    the mean, a larger one the point of the interval giving the smallest
+    adjustment.
     ``source``, ``date``, ``page`` and ``justification`` travel with the step.
     """
 
@@ -227,8 +283,12 @@ def apply_adjustments(
                 raise ValueError(f"{name_prefix}.range applies to pct, pct_group, coef, abs and param steps")
             bounds = source_range(f"{name_prefix}.range", step["range"])
             checked = _finite(f"{name_prefix}.{_RANGE_VALUE[kind]}", step.get(_RANGE_VALUE[kind]))
-            record["range"] = {"low": bounds["low"], "high": bounds["high"]}
-            record["within_range"] = bounds["low"] <= checked <= bounds["high"]
+            record["range"] = {key: bounds[key] for key in _RANGE_NUMBERS if key in bounds}
+            low = bounds.get("extended_low", bounds["low"])
+            high = bounds.get("extended_high", bounds["high"])
+            record["within_range"] = low <= checked <= high
+            if "mean" in bounds:
+                record["choice"] = _choice(kind, bounds, checked, price, step)
         # The evidence of the step travels with it into the result.
         for key in ("source", "date", "page", "justification"):
             if step.get(key) not in (None, ""):
