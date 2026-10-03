@@ -9,12 +9,13 @@ list of ``checks`` — warnings the appraiser has to review.
 from __future__ import annotations
 
 import functools
+import inspect
 import math
 from datetime import date, datetime
 from collections.abc import Mapping
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from ._adjustments import json_value
+from ._adjustments import json_value, source_range
 
 STATUS_DRAFT = "черновой расчёт"
 STATUS_REVIEW = "нужна проверка оценщика"
@@ -234,12 +235,65 @@ def _analog_vat_checks(context: Mapping[str, Any], result: Mapping[str, Any]) ->
 
 
 def _weighting_guardrails(result: Mapping[str, Any]) -> List[str]:
-    if result.get("weighting") not in ("inverse_gross", "inverse_count"):
+    if result.get("weighting") in (None, "manual"):
         return []
     return [
         "Автоматические веса аналогов — эвристика, а не мера достоверности: обоснуйте выбор "
         "правила или задайте веса вручную."
     ]
+
+
+def _out_of_range(label: str, value: Any, low: float, high: float, justified: bool) -> tuple:
+    text = f"{label}: значение {value} вне границ источника [{low}; {high}]"
+    if justified:
+        return [], [f"{text}; приведено обоснование оценщика."]
+    return [f"{text} — обоснуйте выбор (justification) или исправьте значение."], []
+
+
+def _step_range_review(result: Mapping[str, Any]) -> tuple:
+    """Adjustment steps whose value lies outside the bounds of their source."""
+
+    checks: List[str] = []
+    guardrails: List[str] = []
+    for item in _observations(result):
+        for step in item.get("adjustments") or []:
+            if not isinstance(step, Mapping) or step.get("within_range") is not False:
+                continue
+            value = step.get("value", step.get("exponent"))
+            label = f"Аналог {item.get('index')}, шаг «{step.get('name')}»"
+            found = _out_of_range(
+                label, value, step["range"]["low"], step["range"]["high"], bool(step.get("justification"))
+            )
+            checks += found[0]
+            guardrails += found[1]
+    return checks, guardrails
+
+
+def _source_range_review(func: Callable[..., Any], args: tuple, kwargs: dict, ranges: Any) -> tuple:
+    """Parameters of a calculation compared with the bounds of their source."""
+
+    if not isinstance(ranges, Mapping):
+        raise ValueError("source_ranges must be an object {parameter: {low, high}}")
+    bound = inspect.signature(func).bind(*args, **kwargs)
+    bound.apply_defaults()
+    review: Dict[str, Any] = {}
+    checks: List[str] = []
+    guardrails: List[str] = []
+    for name, bounds in ranges.items():
+        if name not in bound.arguments:
+            raise ValueError(f"source_ranges: {name} is not a parameter of this calculation")
+        value = bound.arguments[name]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"source_ranges: {name} is not a numeric parameter of this calculation")
+        item = source_range(f"source_ranges.{name}", bounds)
+        item["value"] = value
+        item["within_range"] = item["low"] <= value <= item["high"]
+        if not item["within_range"]:
+            found = _out_of_range(name, value, item["low"], item["high"], "justification" in item)
+            checks += found[0]
+            guardrails += found[1]
+        review[name] = item
+    return review, checks, guardrails
 
 
 _FLOW_RATE_FIELDS = {
@@ -346,6 +400,12 @@ def method_card(
     models with ``required_conditions`` accept ``confirmed_conditions`` — the
     ids of the conditions of application confirmed by the appraiser; an
     unconfirmed condition is a check.
+
+    Every calculation accepts ``source_ranges`` — ``{parameter: {"low",
+    "high", "source", "page", "justification"}}``, the bounds given by the
+    source of a numeric parameter (a rate, a period, a share). A value
+    outside them is a check, or a reminder when it is justified. Adjustment
+    steps carry their own ``range``, reviewed the same way.
     """
 
     def decorate(func: Callable[..., Dict[str, Any]]) -> Callable[..., Dict[str, Any]]:
@@ -355,6 +415,7 @@ def method_card(
             context: Any = None,
             flow_rate_basis: Any = None,
             confirmed_conditions: Any = None,
+            source_ranges: Any = None,
             **kwargs: Any,
         ) -> Dict[str, Any]:
             assignment = assignment_context(context)
@@ -368,6 +429,14 @@ def method_card(
             checks += _later_price_checks(assignment, result) + _kind_checks(assignment, result)
             checks += _analog_vat_checks(assignment, result)
             guardrails = list(result.pop("guardrails", []))
+            step_checks, step_guardrails = _step_range_review(result)
+            checks += step_checks
+            guardrails += step_guardrails
+            if source_ranges is not None:
+                review, range_checks, range_guardrails = _source_range_review(func, args, kwargs, source_ranges)
+                result["source_ranges"] = review
+                checks += range_checks
+                guardrails += range_guardrails
             conditions = list(result.pop("conditions", []))
             guardrails += offer_guardrails(result) + identifier_guardrails(result)
             guardrails += _weighting_guardrails(result)

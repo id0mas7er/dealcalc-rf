@@ -13,6 +13,7 @@ from ._adjustments import (
     WEIGHTING_FORMULAS,
     adjustment_steps,
     analog_weight,
+    sample_weights,
     apply_adjustments,
     json_value,
     money,
@@ -246,6 +247,7 @@ def vehicle_comparative_approach(
 
     matched: List[Dict[str, Any]] = []
     weighted_items = []
+    adjusted_all = []
     rejected = 0
     # Analogs a set limit could not be applied to for lack of data.
     no_year: List[int] = []
@@ -299,6 +301,7 @@ def vehicle_comparative_approach(
         adjusted_price = adjusted["adjusted_price"]
         weight = analog_weight(comparable, adjusted, weighting, prefix)
         weighted_items.append((adjusted_price, weight))
+        adjusted_all.append(adjusted)
         item: Dict[str, Any] = {
             "index": index,
             "price_rub": money(price),
@@ -316,6 +319,11 @@ def vehicle_comparative_approach(
 
     if not matched:
         raise ValueError("no comparable vehicles matched the subject filters")
+    sample = sample_weights(adjusted_all, weighting)
+    if sample is not None:
+        weighted_items = [(price, weight) for (price, _), weight in zip(weighted_items, sample)]
+        for item, weight in zip(matched, sample):
+            item["weight"] = round(weight, 6)
     weighted_items = list(
         zip([price for price, _ in weighted_items], scaled_weights([weight for _, weight in weighted_items]))
     )

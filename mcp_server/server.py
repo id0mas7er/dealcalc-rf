@@ -28,7 +28,9 @@ DealCalc RF — расчёты для оценки в РФ (ФСО I–VI, №7,
 3. Аналоги из файла — rf_load_listings; у аналогов указывать source, date (дату
    цены), price_type (сделка | предложение).
 4. Скидки, корректировки, ставки, веса и ограничения отбора задаёт
-   оценщик: не подставлять их самому; если их нет — спросить.
+   оценщик: не подставлять их самому; если их нет — спросить. Значение из
+   справочника передавать с source, date, page и границами справочника
+   (range у шага, source_ranges у ставок и сроков).
 5. Согласование — rf_reconcile_approaches с весами оценщика; существенное
    расхождение подходов — более 30 % по умолчанию, другой порог — только по
    указанию оценщика. Если согласование не завершено, reconciled_value = null:
@@ -67,6 +69,13 @@ FLOW_RATE_NOTE = (
     "без описания — напоминание (ФСО V)."
 )
 
+SOURCE_RANGES_NOTE = (
+    "\n\nsource_ranges (необязательно): {параметр: {low, high, source, date, page, "
+    "justification}} — границы значения в источнике (справочнике); проценты — числами "
+    "(ставка 0,07–0,13 из справочника → low 7, high 13). Значение вне границ — замечание, "
+    "с justification — напоминание."
+)
+
 # Conditions of application of the Expert Council models, by tool.
 TOOL_CONDITIONS = {
     "rf_market_rent_cost_plus": rf.special.MARKET_RENT_CONDITIONS,
@@ -91,6 +100,8 @@ def tool(func: Callable[..., Any]) -> Callable[..., Any]:
         )
     if "flow_rate_basis" in func.__code__.co_varnames:
         description += FLOW_RATE_NOTE
+    if "source_ranges" in func.__code__.co_varnames:
+        description += SOURCE_RANGES_NOTE
     return mcp.tool(description=description)(func)
 
 
@@ -181,9 +192,14 @@ def rf_comparative_approach(
     Аналог: price, area_sqm, adjustments, weight и происхождение (source, date, url,
     price_type сделка|предложение, conditions, reliability). adjustments — шаги по
     порядку к цене за м²: {"name", "type", ...}: pct (процент), pct_group (подряд
-    идущие суммируются и применяются один раз), abs (руб./м²), param (subject, analog,
-    exponent — коэффициент торможения), depreciation (analog_pct, subject_pct).
-    Скидку на торг ставьте первой. weighting: manual | inverse_gross | inverse_count.
+    идущие суммируются и применяются один раз), coef (value — коэффициент таблицы
+    справочника, 0,94), ratio (subject, analog — коэффициенты объекта и аналога к одной
+    базе: этаж, класс, индекс цен на дату), abs (руб./м²), param (subject, analog,
+    exponent — коэффициент торможения), depreciation (analog_pct, subject_pct). У шага —
+    source, date, page, justification и range {low, high} — границы справочника (вне
+    границ — замечание). Скидку на торг ставьте первой. weighting: manual | inverse_gross |
+    inverse_count | count_share (K = (S − M)/((N − 1)·S) по числу корректировок) |
+    gross_share (K ∝ 1 − S_i/Σ(S_j + 1) по сумме модулей корректировок, %).
     Показываются все шаги, валовая и итоговая корректировки, коэффициент вариации (33%)."""
     return rf.comparative_approach(subject_area_sqm, comparables, currency, weighting, context=context)
 
@@ -203,6 +219,7 @@ def rf_net_operating_income(
     other_income_annual: float = 0,
     operating_expenses: Optional[List[dict]] = None,
     currency: str = "RUB",
+    source_ranges: Optional[dict] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Годовой ЧОД по шагам: ПВД → ДВД → ЧОД (ФСО V; ФСО №7, п. 23).
@@ -219,6 +236,7 @@ def rf_net_operating_income(
         other_income_annual,
         operating_expenses,
         currency,
+        source_ranges=source_ranges,
         context=context,
     )
 
@@ -235,7 +253,7 @@ def rf_cap_rate_extraction(comparables: List[dict], context: Optional[dict] = No
 @tool
 def rf_income_capitalization(
     noi_annual: float, cap_rate_pct: float, currency: str = "RUB", flow_rate_basis: Optional[dict] = None,
-    context: Optional[dict] = None
+    source_ranges: Optional[dict] = None, context: Optional[dict] = None
 ) -> dict:
     """Прямая капитализация (ФСО V, п. 14): стоимость = годовой ЧОД / ставка капитализации."""
     return rf.income_capitalization(
@@ -243,6 +261,7 @@ def rf_income_capitalization(
         cap_rate_pct,
         currency,
         flow_rate_basis=flow_rate_basis,
+        source_ranges=source_ranges,
         context=context,
     )
 
@@ -492,6 +511,7 @@ def rf_asset_liquidation_value(
     additional_costs: float = 0,
     forced_sale_discount_pct: Optional[float] = None,
     forced_sale_justification: Optional[str] = None,
+    source_ranges: Optional[dict] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Ликвидационная стоимость отдельного объекта (ФСО II): недвижимость, машина, автомобиль.
@@ -509,6 +529,7 @@ def rf_asset_liquidation_value(
         additional_costs,
         forced_sale_discount_pct,
         forced_sale_justification,
+        source_ranges=source_ranges,
         context=context,
     )
 
@@ -538,7 +559,7 @@ def rf_vehicle_comparative_approach(
     synonyms: {каноническое имя: [написания]} — для марок и моделей; synonyms_file —
     локальный JSON {"brands": {...}, "models": {...}}. Ограничения по году и пробегу задаёт оценщик
     (умолчаний нет). adjustments — как в rf_comparative_approach, abs — в рублях;
-    weighting: manual | inverse_gross | inverse_count."""
+    weighting: manual | inverse_gross | inverse_count | count_share | gross_share."""
     return rf.vehicle_comparative_approach(
         subject,
         comparables,

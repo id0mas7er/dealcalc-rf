@@ -154,6 +154,11 @@ codex mcp add dealcalc-rf -- PYTHON SERVER
   сбора), `price_type` (`сделка` или `предложение`), при наличии — `url`,
   `conditions`, `reliability`.
 - Корректировки задавать шагами по порядку; скидку на торг ставить первой.
+- Значение из справочника передавать с `source`, `date`, `page` и границами
+  справочника: `range` у шага корректировки, `source_ranges` у ставок,
+  сроков и долей. Числа справочников в DealCalc RF не встроены — их даёт
+  оценщик или его каталог справочников; что куда передавать — в
+  [гайде оценщика](appraiser-guide.md#данные-справочников-что-и-куда).
 - Не применять методы вне рамок проекта (ФСО №9, методика Минюста 2018
   года, ВСН 53-86(р)) и не выдавать их результат за расчёт DealCalc RF.
 
@@ -179,8 +184,11 @@ codex mcp add dealcalc-rf -- PYTHON SERVER
 adjustments}`. Шаги `adjustments`: `{"name", "type": "pct", "value": -5}`
 (процент), `pct_group` (подряд идущие суммируются), `abs` (руб./м²),
 `param` (`subject`, `analog`, `exponent` — коэффициент торможения),
-`depreciation`. Веса — `weighting`: `manual` (поле `weight`),
-`inverse_gross`, `inverse_count`.
+`coef` (`value` — коэффициент таблицы справочника), `ratio` (`subject`,
+`analog` — коэффициенты к одной базе), `depreciation`. У шага — `source`,
+`date`, `page` и `range` {`low`, `high`} — границы справочника. Веса —
+`weighting`: `manual` (поле `weight`), `inverse_gross`, `inverse_count`,
+`count_share`, `gross_share`.
 
 **Коммерческая недвижимость, доходный подход.**
 `rf_net_operating_income` (ПВД → ДВД → ЧОД) → ставка: по рынку

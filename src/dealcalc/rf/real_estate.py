@@ -22,6 +22,7 @@ from ._adjustments import (
     WEIGHTING_FORMULAS,
     adjustment_steps,
     analog_weight,
+    sample_weights,
     apply_adjustments,
     money,
     scaled_weights,
@@ -125,8 +126,11 @@ def comparative_approach(
     ``adjustment_pct`` field is treated as one step.
 
     ``weighting``: ``manual`` (``weight`` of each comparable, default 1),
-    ``inverse_gross`` (w ∝ 1 / (1 + gross adjustment / 100)) or
-    ``inverse_count`` (w ∝ 1 / (1 + number of adjustments)).
+    ``inverse_gross`` (w ∝ 1 / (1 + gross adjustment / 100)),
+    ``inverse_count`` (w ∝ 1 / (1 + number of adjustments)), ``count_share``
+    (K = (S − M) / ((N − 1) S) by the number of adjustments) or
+    ``gross_share`` (K ∝ 1 − S_i / Σ(S_j + 1) by the sum of absolute
+    adjustments, %).
 
     The indicated value is the rounded weighted unit price times the subject
     area. ``variation`` reports the coefficient of variation of adjusted unit
@@ -146,6 +150,7 @@ def comparative_approach(
     normalized = []
     raw_weights: List[float] = []
     raw_prices: List[float] = []
+    adjusted_all = []
 
     for index, comparable in enumerate(comparables, start=1):
         if not isinstance(comparable, Mapping):
@@ -171,6 +176,7 @@ def comparative_approach(
         weight = analog_weight(comparable, adjusted, weighting, prefix)
         raw_weights.append(weight)
         raw_prices.append(adjusted_unit_price)
+        adjusted_all.append(adjusted)
 
         item: Dict[str, Any] = {
             "index": index,
@@ -186,6 +192,11 @@ def comparative_approach(
         }
         normalized.append(item)
 
+    sample = sample_weights(adjusted_all, weighting)
+    if sample is not None:
+        raw_weights = sample
+        for item, weight in zip(normalized, sample):
+            item["weight"] = round(weight, 6)
     for item, share in zip(normalized, weight_shares(raw_weights)):
         item["weight_share"] = share
     scaled = scaled_weights(raw_weights)
