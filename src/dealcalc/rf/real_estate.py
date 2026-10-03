@@ -186,6 +186,7 @@ def comparative_approach(
             "adjustments": adjusted["adjustments"],
             "net_adjustment_pct": adjusted["net_adjustment_pct"],
             "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
+            "adjustments_sum_abs_pct": adjusted["adjustments_sum_abs_pct"],
             "adjusted_unit_price": _round(adjusted_unit_price),
             "weight": round(weight, 6),
             **observation_fields(comparable, prefix),

@@ -308,6 +308,7 @@ def vehicle_comparative_approach(
             "adjustments": adjusted["adjustments"],
             "net_adjustment_pct": adjusted["net_adjustment_pct"],
             "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
+            "adjustments_sum_abs_pct": adjusted["adjustments_sum_abs_pct"],
             "adjusted_price_rub": money(adjusted_price),
             "weight": round(weight, 6),
         }

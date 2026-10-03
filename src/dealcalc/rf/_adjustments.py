@@ -200,6 +200,9 @@ def apply_adjustments(
     price = base_price
     applied = []
     gross_change = 0.0
+    # Adjustments as written: a percent step by its percent, any other step
+    # by its own change relative to the price before it.
+    written_total = 0.0
     group_base = None
     group_total = 0.0
     for number, step in enumerate(steps, start=1):
@@ -294,6 +297,7 @@ def apply_adjustments(
             raise ValueError(f"{name_prefix}: adjusted price must be greater than 0")
         change = new_price - price
         gross_change += abs(change)
+        written_total += abs(value) if kind in ("pct", "pct_group") else abs(new_price / price - 1) * 100
         record.update(
             price_before=money(price),
             price_after=money(new_price),
@@ -326,6 +330,8 @@ def apply_adjustments(
         "gross_adjustment_pct": _share_pct(gross_change, base_price),
         # Unrounded, for weights computed over the whole sample.
         "gross_adjustment_raw_pct": None if base_price == 0 else gross_change / base_price * 100,
+        "adjustments_sum_abs_raw_pct": written_total,
+        "adjustments_sum_abs_pct": money(written_total),
     }
 
 
@@ -385,11 +391,11 @@ WEIGHTING_FORMULAS = {
     ),
     "gross_share": (
         "K_i = (1 − S_i / Σ(S_j + 1)) / Σ_k (1 − S_k / Σ(S_j + 1)), S_i — сумма модулей "
-        "корректировок аналога, % (10 % → 10)"
+        "корректировок аналога как записаны, % (|−10 %| + |+20 %| = 30)"
     ),
     "gross_share_fraction": (
         "K_i = (1 − S_i / Σ(S_j + 1)) / Σ_k (1 − S_k / Σ(S_j + 1)), S_i — сумма модулей "
-        "корректировок аналога в долях (10 % → 0,10)"
+        "корректировок аналога как записаны, в долях (|−10 %| + |+20 %| = 0,30)"
     ),
 }
 # Rules that need the whole sample: the weight of an analog depends on the others.
@@ -438,7 +444,7 @@ def sample_weights(adjusted: Sequence[Mapping[str, Any]], weighting: str) -> Opt
             return [1 / count] * count
         return [(total - number) / ((count - 1) * total) for number in numbers]
     scale = 1 if weighting == "gross_share" else 1 / 100
-    gross = [(item["gross_adjustment_raw_pct"] or 0) * scale for item in adjusted]
+    gross = [item["adjustments_sum_abs_raw_pct"] * scale for item in adjusted]
     denominator = sum(value + 1 for value in gross)
     raw = [1 - value / denominator for value in gross]
     return [value / sum(raw) for value in raw]

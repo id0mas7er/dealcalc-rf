@@ -457,3 +457,27 @@ def test_staged_variant_types():
         _staged([[{"label": "x", "type": "pct_group", "value": 5}]])
     with pytest.raises(ValueError, match="stages"):
         _staged([])
+
+
+def test_gross_share_sums_adjustments_as_written():
+    analogs = [
+        _analog([{"name": "a", "type": "pct", "value": -10}, {"name": "b", "type": "pct", "value": 20}]),
+        _analog([{"name": "a", "type": "pct", "value": 10}]),
+    ]
+    result = rf.comparative_approach(100, analogs, weighting="gross_share")
+
+    # |−10| + |+20| = 30 (not 10 + 18 = 28 of the chain); Σ(S_j + 1) = 42.
+    assert [item["adjustments_sum_abs_pct"] for item in result["comparables"]] == [30, 10]
+    assert [item["weight_share"] for item in result["comparables"]] == [round(12 / 44, 4), round(32 / 44, 4)]
+
+
+def test_sum_of_written_adjustments_by_step_type():
+    steps = [
+        {"name": "Торг", "type": "coef", "value": 0.9},
+        {"name": "Этаж", "type": "ratio", "subject": 1.05, "analog": 1.0},
+        {"name": "Парковка", "type": "abs", "value": -9_450},
+    ]
+    item = rf.comparative_approach(100, [_analog(steps)])["comparables"][0]
+
+    # 10 % + 5 % + 9450 / 94 500 = 10 %.
+    assert item["adjustments_sum_abs_pct"] == 25

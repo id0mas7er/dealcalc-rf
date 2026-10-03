@@ -205,8 +205,8 @@ def rf_comparative_approach(
     выбора: поправка до 30 % — среднее, больше — минимальная поправка в интервале
     (отступление — замечание). Скидку на торг ставьте первой. weighting: manual | inverse_gross |
     inverse_count | count_share (K = (S − M)/((N − 1)·S) по числу корректировок) |
-    gross_share (K ∝ 1 − S_i/Σ(S_j + 1) по сумме модулей корректировок, %: 10 % → 10) |
-    gross_share_fraction (то же, S_i в долях: 10 % → 0,10).
+    gross_share (K ∝ 1 − S_i/Σ(S_j + 1), S_i — сумма модулей корректировок как записаны, %:
+    |−10 %| + |+20 %| = 30) | gross_share_fraction (то же, S_i в долях: 0,30).
     Показываются все шаги, валовая и итоговая корректировки, коэффициент вариации (33%)."""
     return rf.comparative_approach(subject_area_sqm, comparables, currency, weighting, context=context)
 
