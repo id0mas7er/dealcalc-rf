@@ -58,7 +58,7 @@ def test_value_within_the_source_range():
     result = _range_result(0.94)
     step = result["comparables"][0]["adjustments"][0]
 
-    assert step["range"] == {"low": 0.93, "high": 0.96}
+    assert step["range"] == {"low": 0.93, "high": 0.96, "kind": "values"}
     assert step["within_range"] is True
     assert not any("границ" in check for check in result["checks"])
 
@@ -217,7 +217,8 @@ def test_mcp_tools_accept_source_ranges():
 
 
 # Choice of the value within the reference-book interval (appraiser's practice):
-# an adjustment up to 30 % takes the mean; a larger one — the point of the
+# by default the mean; with choice_rule "minimal" (the appraiser's practice)
+# an adjustment up to 30 % takes the mean, a larger one — the point of the
 # (extended) interval giving the smallest adjustment.
 
 
@@ -229,7 +230,10 @@ def _choice(step):
 def test_mean_is_taken_for_a_small_adjustment():
     result, step = _choice({"name": "Торг", "type": "coef", "value": 0.90, "range": {"low": 0.86, "high": 0.93, "mean": 0.90}})
 
-    assert step["choice"] == {"expected": 0.9, "rule": "mean", "adjustment_at_mean_pct": 10.0, "follows_rule": True}
+    assert step["choice"] == {
+        "expected": 0.9, "rule": "mean", "policy": "mean", "adjustment_at_mean_pct": 10.0,
+        "adjustment_pct": 10.0, "within_threshold": True, "follows_rule": True,
+    }
     assert result["checks"] == [] or not any("правилу" in check for check in result["checks"])
 
 
@@ -253,7 +257,7 @@ def test_other_point_with_justification_is_a_reminder():
 def test_large_adjustment_takes_the_smallest_in_the_extended_interval():
     # Area 2000 vs 10000 m²: (0.2)^-0.25 = 1.50 at the mean, over 30 %.
     step_data = {
-        "name": "Площадь", "type": "param", "subject": 2000, "analog": 10000, "value": None,
+        "name": "Площадь", "type": "param", "subject": 2000, "analog": 10000, "value": None, "choice_rule": "minimal",
         "range": {"low": -0.30, "high": -0.20, "mean": -0.25, "extended_low": -0.35, "extended_high": -0.10},
     }
     step_data.pop("value")
@@ -268,7 +272,7 @@ def test_large_adjustment_takes_the_smallest_in_the_extended_interval():
 
 def test_large_adjustment_not_at_the_smallest_point_is_a_check():
     result, step = _choice({
-        "name": "Площадь", "type": "param", "subject": 2000, "analog": 10000, "exponent": -0.25,
+        "name": "Площадь", "type": "param", "subject": 2000, "analog": 10000, "exponent": -0.25, "choice_rule": "minimal",
         "range": {"low": -0.30, "high": -0.20, "mean": -0.25, "extended_low": -0.35, "extended_high": -0.10},
     })
 
@@ -277,7 +281,8 @@ def test_large_adjustment_not_at_the_smallest_point_is_a_check():
 
 
 def test_large_adjustment_without_extended_interval_uses_the_interval():
-    _, step = _choice({"name": "Торг", "type": "pct", "value": -35, "range": {"low": -45, "high": -35, "mean": -40}})
+    _, step = _choice({"name": "Торг", "type": "pct", "value": -35, "choice_rule": "minimal",
+                       "range": {"low": -45, "high": -35, "mean": -40}})
 
     assert step["choice"]["rule"] == "minimal_interval"
     assert step["choice"]["expected"] == -35

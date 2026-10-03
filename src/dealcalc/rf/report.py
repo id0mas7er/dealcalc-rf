@@ -9,6 +9,7 @@ unresolved checks.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any, Dict, List
@@ -67,6 +68,22 @@ _SIGNING = {
 }
 
 
+# Results of a calculation that are a value (or a rent) of the object, not an
+# intermediate figure (NOI, rate, depreciation).
+_VALUE_KEYS = (
+    "reconciled_value", "indicated_value", "residual_value", "weighted_value", "interest_value",
+    "business_liquidation_value", "liquidation_value", "market_value", "actual_share_value", "unit_value",
+    "equity_value_100pct", "value_100pct", "invested_capital_value",
+    "gross_rent_year", "gross_rent_month", "rent_sqm_year", "rent_sqm_month",
+)
+# Rounding of the final value against the calculated one.
+FINAL_VALUE_TOLERANCE_PCT = 1.0
+
+
+def _number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
 def _present(value: Any) -> bool:
     if value is None or value is False:
         return False
@@ -113,6 +130,14 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
     ``reference`` and ``date``) and ``signing`` (``form``: ``paper`` or
     ``electronic`` and the confirmed requirements of пп. 4–5).
 
+    A numeric ``final_value`` must match a value result of one of the
+    calculations (``reconciled_value``, ``indicated_value`` and the like)
+    within 1 % for rounding, or the transition is explained in
+    ``final_value_justification``; calculations of intermediate figures only
+    (NOI, rates) are a check. ``assignment.assignment_id`` is compared with
+    the context of the calculations; the checks of the assignment are kept as
+    guardrails. In private practice no employer signature is required.
+
     ``can_issue`` is true when nothing required is missing and no check is
     left to resolve; checks name the points to review. A section of the wrong
     type (a string instead of an object or a list) is missing. Signing and
@@ -128,6 +153,10 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
         if not (_present(report.get(field)) or (field == "engaged_specialists" and report.get(field) == []))
     ]
     checks: List[str] = []
+    guardrails: List[str] = [
+        "Проверяется состав отчёта и связь итога с расчётами, а не обоснованность суждений оценщика; "
+        "подписание и хранение копий отчёта и материалов (ФСО VI, п. 12) — обязанность оценщика.",
+    ]
     for point, field, kind in _SECTION_TYPES:
         value = report.get(field)
         is_list = isinstance(value, Sequence) and not isinstance(value, (str, bytes))
@@ -145,6 +174,7 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
     if isinstance(assignment, Mapping) and assignment:
         assignment_result = check_assignment(assignment)
         missing += [f"п. 7 (3) задание: {item}" for item in assignment_result["missing_critical"]]
+        guardrails += [f"Задание: {item}" for item in assignment_result["checks"]]
 
     appraisers = report.get("appraisers")
     if _present(appraisers):
@@ -212,11 +242,35 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
                 checks.append(f"{label}: в расчёте не указан контекст ({name}).")
             elif expected and actual and str(actual).strip().lower() != str(expected).strip().lower():
                 checks.append(f"{label}: {name} в расчёте «{actual}», в задании «{expected}».")
+        expected_id, actual_id = context.get("assignment_id"), calc_context.get("assignment_id")
+        if _present(expected_id) and _present(actual_id) and str(actual_id).strip() != str(expected_id).strip():
+            checks.append(f"{label}: расчёт выполнен к заданию «{actual_id}», отчёт — к заданию «{expected_id}».")
         if calculation.get("reconciled_value", 0) is None:
             checks.append(f"{label}: согласование не завершено — итоговой стоимости нет.")
 
     final_value = report.get("final_value")
     form_given = isinstance(assignment, Mapping) and _present(assignment.get("final_value_form"))
+
+    # ФСО VI, пп. 1–2, 7: the final value follows from the calculations.
+    values = [calculation[key] for calculation in calculations for key in _VALUE_KEYS if _number(calculation.get(key))]
+    if calculations and not values:
+        checks.append(
+            "п. 7 (13) approaches.calculations: нет расчёта стоимости — только промежуточные показатели "
+            "(ЧОД, ставки, износ); приложите расчёт стоимости или согласование подходов."
+        )
+    elif (
+        _number(final_value)
+        and values
+        and not _present(report.get("final_value_justification"))
+        and not any(
+            math.isclose(final_value, value, rel_tol=FINAL_VALUE_TOLERANCE_PCT / 100) for value in values
+        )
+    ):
+        checks.append(
+            f"final_value {final_value} не совпадает (с точностью до 1 %) ни с одним результатом расчёта "
+            "стоимости — приложите расчёт, из которого он получен, или объясните переход "
+            "(final_value_justification: округление, учёт НДС и т. п.)."
+        )
 
     # ФСО №7, п. 30: for real estate, the appraiser's judgment of the bounds of
     # the interval, unless the assignment says otherwise.
@@ -263,10 +317,13 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
         missing.append("пп. 3–5 signing.form — форма отчёта: paper или electronic")
     else:
         confirmed = signing.get("confirmed") or []
+        # ФСО VI, п. 5: the head of the legal entity signs only when the
+        # appraiser works under an employment contract with it.
+        private = report.get("private_practice") is True
         missing += [
             f"п. {4 if form == 'paper' else 5} signing — {label}"
             for key, label in _SIGNING[form].items()
-            if key not in confirmed
+            if key not in confirmed and not (private and key == "employer_signature")
         ]
 
     result: Dict[str, Any] = {
@@ -274,10 +331,7 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
         # Checks are data defects: a report with any of them is not ready either.
         "can_issue": not missing and not checks,
         "calculations_checked": len(calculations),
-        "guardrails": [
-            "Проверяется состав отчёта, а не обоснованность суждений оценщика; подписание и "
-            "хранение копий отчёта и материалов (ФСО VI, п. 12) — обязанность оценщика.",
-        ],
+        "guardrails": guardrails,
         "checks": checks,
     }
     if missing:

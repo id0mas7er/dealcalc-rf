@@ -15,7 +15,7 @@ from datetime import date, datetime
 from collections.abc import Mapping
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
-from ._adjustments import json_value, source_range
+from ._adjustments import json_value, range_position, source_range
 
 STATUS_DRAFT = "черновой расчёт"
 STATUS_REVIEW = "нужна проверка оценщика"
@@ -268,8 +268,32 @@ def _domain_text(label: str, step: Mapping[str, Any]) -> str:
     )
 
 
+def _confidence_text(label: str, value: Any, bounds: Mapping[str, Any], justified: bool) -> str:
+    text = (
+        f"{label}: значение {value} вне доверительного интервала среднего [{bounds['low']}; {bounds['high']}] — "
+        "этот интервал не ограничивает само значение; обоснуйте сдвиг от среднего дополнительными факторами"
+    )
+    return f"{text}; приведено обоснование оценщика." if justified else f"{text}."
+
+
+def _later_source_text(label: str, raw: Any, valuation: Optional[date]) -> Optional[str]:
+    """A source dated after the valuation date (ФСО III, п. 12)."""
+
+    found = None if valuation is None or raw in (None, "") else _parse_date(raw)
+    if found is None or found <= valuation:
+        return None
+    return (
+        f"{label}: источник датирован {raw}, позже даты оценки {valuation.isoformat()}; он должен отражать "
+        "состояние рынка на дату оценки (ФСО III, п. 12)"
+    )
+
+
+def _valuation_date(context: Mapping[str, Any]) -> Optional[date]:
+    return date.fromisoformat(context["valuation_date"]) if context.get("valuation_date") else None
+
+
 _CHOICE_TEXT = {
-    "mean": "по правилу выбора при поправке до 30 % берётся среднее {expected}",
+    "mean": "без обоснованного сдвига берётся среднее {expected}",
     "minimal_extended": (
         "поправка больше 30 % — по правилу выбора берётся значение с минимальной поправкой "
         "в расширенном интервале ({expected})"
@@ -281,11 +305,12 @@ _CHOICE_TEXT = {
 }
 
 
-def _step_range_review(result: Mapping[str, Any]) -> tuple:
+def _step_range_review(result: Mapping[str, Any], valuation: Optional[date] = None) -> tuple:
     """Adjustment steps whose value lies outside the bounds of their source,
-    departs from the rule of choice, ends a cascade above the threshold or
-    applies an equation outside its domain — in the analogs, at the root of
-    the result (the value of an interest) and in operating expenses."""
+    departs from the rule of choice, is larger than 30 %, ends a cascade above
+    the threshold, applies an equation outside its domain or cites a source
+    dated after the valuation date — in the analogs, at the root of the
+    result (the value of an interest) and in operating expenses."""
 
     checks: List[str] = []
     guardrails: List[str] = []
@@ -302,6 +327,10 @@ def _step_range_review(result: Mapping[str, Any]) -> tuple:
             label = f"{owner} «{step.get('name')}»"
             choice = step.get("choice") or {}
             chosen = step.get("chosen") or {}
+            bounds = step.get("range") if isinstance(step.get("range"), Mapping) else {}
+            justified = any(
+                str(item.get("justification") or "").strip() for item in (step, bounds)
+            )
             texts = []
             if step.get("selection") == "smallest_of_all":
                 texts.append(
@@ -313,14 +342,23 @@ def _step_range_review(result: Mapping[str, Any]) -> tuple:
             if chosen.get("within_domain") is False:
                 texts.append(_domain_text(f"{label}, вариант «{chosen['label']}»", chosen))
             if step.get("within_range") is False:
-                bounds = step["range"]
                 texts.append(_out_of_range_text(
                     label, value, bounds.get("extended_low", bounds["low"]), bounds.get("extended_high", bounds["high"])
                 ))
             elif choice.get("follows_rule") is False:
                 rule = _CHOICE_TEXT[choice["rule"]].format(expected=choice["expected"])
                 texts.append(f"{label}: {rule}, взято {value}")
-            justified = bool(str(step.get("justification") or "").strip())
+            elif step.get("within_confidence") is False:
+                guardrails.append(_confidence_text(label, value, bounds, justified))
+            if choice.get("within_threshold") is False:
+                texts.append(
+                    f"{label}: поправка {choice['adjustment_pct']} % больше 30 % — существенное различие в "
+                    "ценообразовании объекта и аналога; проверьте сопоставимость аналога"
+                )
+            for raw in (step.get("date"), bounds.get("date"), chosen.get("date")):
+                later = _later_source_text(label, raw, valuation)
+                if later:
+                    texts.append(later)
             for text in texts:
                 found = _review(text, justified)
                 checks += found[0]
@@ -328,7 +366,9 @@ def _step_range_review(result: Mapping[str, Any]) -> tuple:
     return checks, guardrails
 
 
-def _source_range_review(func: Callable[..., Any], args: tuple, kwargs: dict, ranges: Any) -> tuple:
+def _source_range_review(
+    func: Callable[..., Any], args: tuple, kwargs: dict, ranges: Any, valuation: Optional[date] = None
+) -> tuple:
     """Parameters of a calculation compared with the bounds of their source."""
 
     if not isinstance(ranges, Mapping):
@@ -346,11 +386,20 @@ def _source_range_review(func: Callable[..., Any], args: tuple, kwargs: dict, ra
             raise ValueError(f"source_ranges: {name} is not a numeric parameter of this calculation")
         item = source_range(f"source_ranges.{name}", bounds)
         item["value"] = value
-        low = item.get("extended_low", item["low"])
-        high = item.get("extended_high", item["high"])
-        item["within_range"] = low <= value <= high
-        if not item["within_range"]:
-            found = _out_of_range(name, value, low, high, "justification" in item)
+        item.update(range_position(item, value))
+        justified = "justification" in item
+        texts = []
+        if item["within_range"] is False:
+            texts.append(_out_of_range_text(
+                name, value, item.get("extended_low", item["low"]), item.get("extended_high", item["high"])
+            ))
+        elif item.get("within_confidence") is False:
+            guardrails.append(_confidence_text(name, value, item, justified))
+        later = _later_source_text(name, item.get("date"), valuation)
+        if later:
+            texts.append(later)
+        for text in texts:
+            found = _review(text, justified)
             checks += found[0]
             guardrails += found[1]
         review[name] = item
@@ -490,11 +539,13 @@ def method_card(
             checks += _later_price_checks(assignment, result) + _kind_checks(assignment, result)
             checks += _analog_vat_checks(assignment, result)
             guardrails = list(result.pop("guardrails", []))
-            step_checks, step_guardrails = _step_range_review(result)
+            step_checks, step_guardrails = _step_range_review(result, _valuation_date(assignment))
             checks += step_checks
             guardrails += step_guardrails
             if source_ranges is not None:
-                review, range_checks, range_guardrails = _source_range_review(func, args, kwargs, source_ranges)
+                review, range_checks, range_guardrails = _source_range_review(
+                    func, args, kwargs, source_ranges, _valuation_date(assignment)
+                )
                 result["source_ranges"] = review
                 checks += range_checks
                 guardrails += range_guardrails

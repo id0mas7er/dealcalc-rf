@@ -40,7 +40,12 @@ def source_range(name: str, bounds: Any) -> Dict[str, Any]:
     """Bounds of a value given by its source (a reference-book table):
     ``{"low", "high"}`` with optional ``mean``, the extended interval
     ``extended_low`` / ``extended_high``, ``source``, ``date``, ``page`` and
-    ``justification`` of a value chosen against the bounds or the rule."""
+    ``justification`` of a value chosen against the bounds or the rule.
+
+    ``kind`` tells what ``low`` / ``high`` are: ``values`` (default) — the
+    range of the value itself; ``confidence`` — the confidence interval of
+    the mean, which does not bound an individual value (Leifer). The
+    extended interval always bounds the value."""
 
     if not isinstance(bounds, Mapping):
         raise ValueError(f"{name} must be an object with low and high")
@@ -48,7 +53,10 @@ def source_range(name: str, bounds: Any) -> Dict[str, Any]:
     high = _finite(f"{name}.high", bounds.get("high"))
     if low > high:
         raise ValueError(f"{name}.low must not exceed {name}.high")
-    result: Dict[str, Any] = {"low": low, "high": high}
+    kind = "values" if bounds.get("kind") in (None, "") else bounds["kind"]
+    if kind not in RANGE_KINDS:
+        raise ValueError(f"{name}.kind must be 'values' or 'confidence'")
+    result: Dict[str, Any] = {"low": low, "high": high, "kind": kind}
     if bounds.get("mean") not in (None, ""):
         mean = _finite(f"{name}.mean", bounds["mean"])
         if not low <= mean <= high:
@@ -91,9 +99,30 @@ def within_domain(domain: Mapping[str, Any], *values: float) -> bool:
     )
 
 
+def range_position(bounds: Mapping[str, Any], value: float) -> Dict[str, Any]:
+    """Where a value lies against the bounds of its source: ``within_range``
+    — within the bounds of the value (the extended interval, else ``low`` /
+    ``high`` of the kind ``values``; ``None`` when only the interval of the
+    mean is given); ``within_confidence`` — within the interval of the mean."""
+
+    position: Dict[str, Any] = {}
+    if "extended_low" in bounds:
+        position["within_range"] = bounds["extended_low"] <= value <= bounds["extended_high"]
+    elif bounds["kind"] == "values":
+        position["within_range"] = bounds["low"] <= value <= bounds["high"]
+    else:
+        position["within_range"] = None
+    if bounds["kind"] == "confidence":
+        position["within_confidence"] = bounds["low"] <= value <= bounds["high"]
+    return position
+
+
 # The value of a step compared with the bounds of its source.
 _RANGE_VALUE = {"pct": "value", "pct_group": "value", "coef": "value", "abs": "value", "param": "exponent"}
-_RANGE_NUMBERS = ("low", "high", "mean", "extended_low", "extended_high")
+RANGE_KINDS = ("values", "confidence")
+# Rules of choice of a value within the interval: the mean (default, the
+# reference books) or the appraiser's practice of the smallest adjustment.
+CHOICE_RULES = ("mean", "minimal")
 
 # Choice of the value within the interval of a reference book (the
 # appraiser's practice): an adjustment up to this size at the mean takes the
@@ -121,9 +150,12 @@ def _step_size_pct(kind: str, value: float, price: float, step: Mapping[str, Any
     return abs(value)
 
 
-def _choice(kind: str, bounds: Mapping[str, Any], value: float, price: float, step: Mapping[str, Any]) -> Dict[str, Any]:
+def _choice(
+    kind: str, bounds: Mapping[str, Any], value: float, price: float, step: Mapping[str, Any], policy: str
+) -> Dict[str, Any]:
     at_mean = _step_size_pct(kind, bounds["mean"], price, step)
-    if _within_threshold(at_mean):
+    size = _step_size_pct(kind, value, price, step)
+    if policy == "mean" or _within_threshold(at_mean):
         expected, rule = bounds["mean"], "mean"
     else:
         extended = "extended_low" in bounds
@@ -136,7 +168,10 @@ def _choice(kind: str, bounds: Mapping[str, Any], value: float, price: float, st
     return {
         "expected": expected,
         "rule": rule,
+        "policy": policy,
         "adjustment_at_mean_pct": money(at_mean),
+        "adjustment_pct": money(size),
+        "within_threshold": _within_threshold(size),
         "follows_rule": math.isclose(value, expected, rel_tol=1e-9, abs_tol=1e-12),
     }
 
@@ -164,21 +199,25 @@ def adjustment_steps(comparable: Mapping[str, Any], prefix: str) -> List[Dict[st
 
 
 def _effective_count(applied: Sequence[Mapping[str, Any]]) -> int:
-    """Adjustments that change the price; a run of ``pct_group`` steps is one
-    adjustment, so the count does not depend on how a group is written."""
+    """Adjustments that change the price. In a run of ``pct_group`` steps
+    each factor counts once: steps of one ``factor`` (by default — of one
+    name) are one adjustment, steps of different factors are different
+    ones, however the group is written."""
 
     count = 0
-    group_changed = None
+    group = None
     for record in applied:
         if record["type"] == "pct_group":
-            group_changed = bool(group_changed) or record["change"] != 0
+            group = set() if group is None else group
+            if record["change"] != 0:
+                group.add(record.get("factor", record["name"]))
             continue
-        if group_changed is not None:
-            count += group_changed
-            group_changed = None
+        if group is not None:
+            count += len(group)
+            group = None
         count += record["change"] != 0
-    if group_changed is not None:
-        count += group_changed
+    if group is not None:
+        count += len(group)
     return count
 
 
@@ -246,6 +285,12 @@ def apply_adjustments(
             raise ValueError(f"{name_prefix}.name must be a non-empty string")
         kind = step.get("type")
         record: Dict[str, Any] = {"step": number, "name": name.strip(), "type": kind}
+        factor = "" if step.get("factor") is None else str(step["factor"]).strip()
+        if factor:
+            record["factor"] = factor
+        policy = step.get("choice_rule")
+        if policy is not None and policy not in CHOICE_RULES:
+            raise ValueError(f"{name_prefix}.choice_rule must be 'mean' or 'minimal'")
         if kind != "pct_group":
             group_base = None
         if kind == "pct_group":
@@ -346,12 +391,12 @@ def apply_adjustments(
                 raise ValueError(f"{name_prefix}.range applies to pct, pct_group, coef, abs and param steps")
             bounds = source_range(f"{name_prefix}.range", step["range"])
             checked = _finite(f"{name_prefix}.{_RANGE_VALUE[kind]}", step.get(_RANGE_VALUE[kind]))
-            record["range"] = {key: bounds[key] for key in _RANGE_NUMBERS if key in bounds}
-            low = bounds.get("extended_low", bounds["low"])
-            high = bounds.get("extended_high", bounds["high"])
-            record["within_range"] = low <= checked <= high
+            record["range"] = dict(bounds)
+            record.update(range_position(bounds, checked))
             if "mean" in bounds:
-                record["choice"] = _choice(kind, bounds, checked, price, step)
+                record["choice"] = _choice(kind, bounds, checked, price, step, policy or "mean")
+        if policy is not None and "choice" not in record:
+            raise ValueError(f"{name_prefix}: choice_rule needs range.mean")
         # The evidence of the step travels with it into the result.
         for key in ("source", "date", "page", "justification"):
             text = "" if step.get(key) is None else str(step[key]).strip()
@@ -403,10 +448,16 @@ def _staged_choice(price: float, stages: Any, prefix: str) -> tuple:
                  "factor": factor, "size": abs(factor - 1) * 100}
             )
         evaluated += current
-        best = min(current, key=lambda item: item["size"])
-        if _within_threshold(best["size"]):
-            return evaluated, best, "within_threshold"
-    return evaluated, min(evaluated, key=lambda item: item["size"]), "smallest_of_all"
+        # An equation outside its domain is not a candidate.
+        applicable = [item for item in current if item["record"].get("within_domain") is not False]
+        if applicable:
+            best = min(applicable, key=lambda item: item["size"])
+            if _within_threshold(best["size"]):
+                return evaluated, best, "within_threshold"
+    applicable = [item for item in evaluated if item["record"].get("within_domain") is not False]
+    if not applicable:
+        return evaluated, min(evaluated, key=lambda item: item["size"]), "outside_domain"
+    return evaluated, min(applicable, key=lambda item: item["size"]), "smallest_of_all"
 
 
 # Prices of a variant evaluated alone; the step of the cascade holds the prices.

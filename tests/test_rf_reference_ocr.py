@@ -125,7 +125,7 @@ def test_expense_within_range_keeps_evidence():
     item = result["operating_expenses"][0]
 
     assert item["within_range"] is True
-    assert item["range"] == {"low": 5.2, "high": 6.5, "mean": 5.9}
+    assert {key: item["range"][key] for key in ("low", "high", "mean")} == {"low": 5.2, "high": 6.5, "mean": 5.9}
     assert item["source"] == "Лейфер, операционные расходы 2026" and item["page"] == "табл. 8"
     assert result["checks"] == []
 

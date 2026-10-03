@@ -56,7 +56,7 @@ def test_choice_exactly_30_pct_takes_the_mean(value, low, high):
 
 
 def test_choice_just_over_30_pct_takes_minimal_adjustment():
-    _, step = _first_step({"name": "coef", "type": "coef", "value": 1.1,
+    _, step = _first_step({"name": "coef", "type": "coef", "value": 1.1, "choice_rule": "minimal",
                            "range": {"low": 1.1, "high": 1.5, "mean": 1.3001}})
 
     assert step["choice"]["rule"] == "minimal_interval"

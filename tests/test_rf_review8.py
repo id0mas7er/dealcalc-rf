@@ -1,4 +1,7 @@
-"""Fixes from review 8: a pct_group counts once; interval of value (ФСО №7, п. 30)."""
+"""Fixes from review 8: a factor of a pct_group counts once; interval of value (ФСО №7, п. 30).
+
+Since 0.12.0 (methodology review R05) different factors in one group count
+apart; a factor split into several records counts once."""
 
 import pytest
 
@@ -15,11 +18,15 @@ def _inverse_count(steps):
     )["indicated_value"]
 
 
-def test_group_counts_as_one_adjustment():
+def test_split_factor_counts_as_one_adjustment():
     one = _inverse_count([{"name": "a", "type": "pct_group", "value": 20}])
-    two = _inverse_count([{"name": "a", "type": "pct_group", "value": 10}, {"name": "b", "type": "pct_group", "value": 10}])
+    two = _inverse_count([{"name": "a", "type": "pct_group", "value": 10}, {"name": "a", "type": "pct_group", "value": 10}])
+    tagged = _inverse_count([
+        {"name": "a1", "type": "pct_group", "value": 10, "factor": "a"},
+        {"name": "a2", "type": "pct_group", "value": 10, "factor": "a"},
+    ])
 
-    assert one == two == 106.67
+    assert one == two == tagged == 106.67
 
 
 def test_group_and_separate_steps_are_counted_apart():
@@ -34,8 +41,8 @@ def test_group_and_separate_steps_are_counted_apart():
         weighting="inverse_count",
     )
 
-    # three adjustments: bargaining, one group, parking → weight 1/4 against 1/1
-    assert result["comparables"][0]["weight_share"] == 0.2
+    # four adjustments: bargaining, two factors of the group, parking → weight 1/5 against 1/1
+    assert result["comparables"][0]["weight_share"] == 0.1667
 
 
 def test_reconcile_keeps_appraiser_interval():

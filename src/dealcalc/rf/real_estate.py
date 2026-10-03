@@ -25,6 +25,7 @@ from ._adjustments import (
     sample_weights,
     apply_adjustments,
     money,
+    range_position,
     source_range,
     scaled_weights,
     variation,
@@ -188,6 +189,7 @@ def comparative_approach(
             "net_adjustment_pct": adjusted["net_adjustment_pct"],
             "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
             "adjustments_sum_abs_pct": adjusted["adjustments_sum_abs_pct"],
+            "adjustments_count": adjusted["adjustments_count"],
             "adjusted_unit_price": _round(adjusted_unit_price),
             "weight": round(weight, 6),
             **observation_fields(comparable, prefix),
@@ -358,11 +360,8 @@ def net_operating_income(
         item["amount"] = _round(amount)
         if expense.get("range") is not None:
             bounds = source_range(f"{prefix}.range", expense["range"])
-            item["range"] = {key: bounds[key] for key in ("low", "high", "mean", "extended_low", "extended_high")
-                             if key in bounds}
-            item["within_range"] = (
-                bounds.get("extended_low", bounds["low"]) <= value <= bounds.get("extended_high", bounds["high"])
-            )
+            item["range"] = dict(bounds)
+            item.update(range_position(bounds, value))
         for key in ("source", "date", "page", "justification"):
             text = "" if expense.get(key) is None else str(expense[key]).strip()
             if text:

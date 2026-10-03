@@ -31,8 +31,10 @@ DealCalc RF — расчёты для оценки в РФ (ФСО I–VI, №7,
    оценщик: не подставлять их самому; если их нет — спросить. Значение из
    справочника передавать с source, date, page и границами справочника
    (range у шага, source_ranges у ставок и сроков). Справочник — по
-   категории объекта, последний выпуск; из интервала — среднее при поправке
-   до 30 %, иначе минимальная поправка (range.mean, extended_low/high).
+   категории объекта, выпуск на дату оценки; из интервала — среднее
+   (range.mean; kind: confidence, если low/high — интервал среднего).
+   Правило минимальной поправки (choice_rule: minimal) и каскад staged — только
+   по решению оценщика; поправка больше 30 % — проверить сопоставимость аналога.
 5. Согласование — rf_reconcile_approaches с весами оценщика; существенное
    расхождение подходов — более 30 % по умолчанию, другой порог — только по
    указанию оценщика. Если согласование не завершено, reconciled_value = null:
@@ -136,7 +138,8 @@ def rf_check_report(report: dict) -> dict:
     engaged_specialists (пустой список — их нет), standards, methodical_recommendations или
     recommendations_not_used_reason, object {description, rights}, assumptions,
     market_analysis, approaches {selection_justification, rejected, rejected_comment,
-    calculations — результаты расчётов целиком, с method_card и status}, final_value (число), limits_of_use, value_interval
+    calculations — результаты расчётов целиком, с method_card и status}, final_value
+    (совпадает с результатом расчёта или согласования до 1 %, иначе final_value_justification) (число), limits_of_use, value_interval
     {low, high, justification} — для недвижимости по ФСО №7, п. 30 (если задание не указывает
     иное: assignment.interval_not_required = true), documents,
     sources [{url или reference, date}], signing {form: paper | electronic, confirmed: [...]}:
@@ -201,10 +204,12 @@ def rf_comparative_approach(
     уравнения, вне её — замечание), staged (stages — этапы вариантов с label: среднее
     уравнение → уравнения границ → таблица; берётся первый этап с поправкой до 30 %,
     иначе наименьшая с justification), depreciation (analog_pct, subject_pct). У шага —
-    source, date, page, justification и range {low, high, mean, extended_low,
-    extended_high} — границы справочника (вне границ — замечание); с mean — правило
-    выбора: поправка до 30 % — среднее, больше — минимальная поправка в интервале
-    (отступление — замечание). Скидку на торг ставьте первой. weighting: manual | inverse_gross |
+    source, date, page, justification, factor (фактор в группе pct_group) и range {low, high,
+    mean, extended_low, extended_high, kind: values | confidence, source, date, page} —
+    границы справочника (вне границ значения — замечание; вне доверительного интервала
+    среднего — напоминание); с mean ожидается среднее, choice_rule: minimal — правило
+    минимальной поправки (до 30 % — среднее, больше — минимальная поправка в интервале);
+    отступление и поправка больше 30 % — замечание. Скидку на торг ставьте первой. weighting: manual | inverse_gross |
     inverse_count | count_share (K = (S − M)/((N − 1)·S) по числу корректировок) |
     gross_share (K ∝ 1 − S_i/Σ(S_j + 1), S_i — сумма модулей корректировок как записаны, %:
     |−10 %| + |+20 %| = 30) | gross_share_fraction (то же, S_i в долях: 0,30).
