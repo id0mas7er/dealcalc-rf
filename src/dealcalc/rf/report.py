@@ -44,6 +44,14 @@ _APPRAISER_FIELDS = {
     "sro_name": "наименование СРО",
     "sro_address": "адрес СРО",
 }
+# Sections whose content is checked: a value of another type is missing.
+_SECTION_TYPES = [
+    ("п. 7 (3)", "assignment", "объект"),
+    ("п. 7 (5)", "customer", "объект"),
+    ("п. 7 (10)", "object", "объект"),
+    ("п. 7 (13)", "approaches", "объект"),
+    ("п. 8", "sources", "список"),
+]
 _LEGAL_FIELDS = {"name": "наименование", "ogrn": "ОГРН или иной регистрационный номер", "address": "место нахождения"}
 _SIGNING = {
     "paper": {
@@ -105,9 +113,10 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
     ``reference`` and ``date``) and ``signing`` (``form``: ``paper`` or
     ``electronic`` and the confirmed requirements of пп. 4–5).
 
-    ``can_issue`` is true when nothing required is missing; checks name the
-    points to review. Signing and keeping the materials (п. 12) remain the
-    appraiser's duty.
+    ``can_issue`` is true when nothing required is missing and no check is
+    left to resolve; checks name the points to review. A section of the wrong
+    type (a string instead of an object or a list) is missing. Signing and
+    keeping the materials (п. 12) remain the appraiser's duty.
     """
 
     if not isinstance(report, Mapping):
@@ -119,6 +128,11 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
         if not (_present(report.get(field)) or (field == "engaged_specialists" and report.get(field) == []))
     ]
     checks: List[str] = []
+    for point, field, kind in _SECTION_TYPES:
+        value = report.get(field)
+        is_list = isinstance(value, Sequence) and not isinstance(value, (str, bytes))
+        if _present(value) and not (is_list if kind == "список" else isinstance(value, Mapping)):
+            missing.append(f"{point} {field} — нужен {kind}, а не {type(value).__name__}")
 
     raw_date = report.get("report_date")
     if _present(raw_date):
@@ -169,7 +183,13 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
             missing.append("п. 7 (13) approaches.selection_justification — обоснование выбора подходов и методов")
         if approaches.get("rejected") and not _present(approaches.get("rejected_comment")):
             missing.append("п. 7 (13) approaches.rejected_comment — комментарий отказа от подхода")
-        calculations = [item for item in approaches.get("calculations") or [] if isinstance(item, Mapping)]
+        raw_calculations = approaches.get("calculations") or []
+        if isinstance(raw_calculations, Sequence) and not isinstance(raw_calculations, (str, bytes)):
+            for index, item in enumerate(raw_calculations):
+                if isinstance(item, Mapping):
+                    calculations.append(item)
+                else:
+                    missing.append(f"п. 7 (13) approaches.calculations[{index}] — нужен результат расчёта (объект)")
         if not calculations:
             missing.append("п. 7 (13) approaches.calculations — расчёты методов")
 
@@ -245,7 +265,8 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
 
     result: Dict[str, Any] = {
         "missing": missing,
-        "can_issue": not missing,
+        # Checks are data defects: a report with any of them is not ready either.
+        "can_issue": not missing and not checks,
         "calculations_checked": len(calculations),
         "guardrails": [
             "Проверяется состав отчёта, а не обоснованность суждений оценщика; подписание и "

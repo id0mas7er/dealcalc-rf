@@ -57,6 +57,7 @@ def test_normalize_listing_maps_common_russian_fields():
         "engine_power_hp": None,
         "transmission": "",
         "drive": "",
+        "vat": "",
     }
 
 

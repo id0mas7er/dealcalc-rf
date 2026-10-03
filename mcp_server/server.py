@@ -128,8 +128,10 @@ def rf_check_report(report: dict) -> dict:
     иное: assignment.interval_not_required = true), documents,
     sources [{url или reference, date}], signing {form: paper | electronic, confirmed: [...]}:
     paper — pages_numbered, bound, signed, sealed; electronic — appraiser_qualified_signature,
-    employer_signature. Результат: missing (с пунктами ФСО VI), can_issue, checks (расчёты
-    со статусом не «черновой расчёт», расхождение контекста, источники без даты)."""
+    employer_signature. Раздел не того типа (строка вместо объекта или списка) — в missing.
+    Результат: missing (с пунктами ФСО VI), checks (расчёты со статусом не «черновой расчёт»,
+    расхождение контекста, источники без даты), can_issue — true, только если missing и
+    checks пусты."""
     return rf.check_report(report)
 
 
@@ -152,7 +154,8 @@ def rf_load_listings(
     (наименование, марка, модель, год, цена, наработка). sheet — лист Excel (по умолчанию
     первый). Русские названия колонок, цены «12 500 000 ₽» и «5 млн руб.», дата публикации
     (date — дата цены), тип цены (по умолчанию «предложение»; нераспознанный оставляется
-    пустым с import_warnings), пошаговые корректировки; дубли удаляются. Ошибка называет
+    пустым с import_warnings), НДС цены (vat: «с НДС» | «без НДС» | «НДС не применяется»),
+    пошаговые корректировки; дубли удаляются. Ошибка называет
     номер строки. Аналоги передаются в расчёты как есть (price_rub читается как цена).
     Читается любой локальный путь, доступный процессу сервера. collected_at — дата сбора
     файла (не дата цены); без неё — текущее время."""

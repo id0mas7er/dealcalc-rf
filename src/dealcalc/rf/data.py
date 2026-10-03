@@ -23,6 +23,8 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 
+from ._meta import _VAT_EXCLUDED, _VAT_INCLUDED, VAT_MODES
+
 
 LISTING_TYPES = {"property", "vehicle", "rent", "income", "business", "machinery"}
 
@@ -41,6 +43,7 @@ _ALIASES = {
         "размещено",
     ),
     "price_type": ("price_type", "тип цены"),
+    "vat": ("vat", "ндс", "цена с ндс", "учёт ндс", "учет ндс"),
     "collected_at": ("collected_at", "дата сбора", "дата_сбора"),
     "region": ("region", "регион", "область", "край"),
     "city": ("city", "город", "населенный пункт", "населённый пункт"),
@@ -232,6 +235,28 @@ def _price_type(value: Any) -> Tuple[str, Optional[str]]:
     return _PRICE_TYPES[text], None
 
 
+_VAT_VALUES = {
+    **{marker: "included" for marker in _VAT_INCLUDED},
+    **{marker: "excluded" for marker in _VAT_EXCLUDED},
+    **{label.lower(): mode for mode, label in VAT_MODES.items()},
+    **{mode: mode for mode in VAT_MODES},
+}
+
+
+def _vat(value: Any) -> Tuple[str, Optional[str]]:
+    """VAT basis of the price: included | excluded | not_applicable, or empty."""
+
+    text = _text(value).lower()
+    if not text:
+        return "", None
+    if text not in _VAT_VALUES:
+        return "", (
+            f"Признак НДС «{_text(value)}» не распознан (ожидается «с НДС», «без НДС» или "
+            "«НДС не применяется»): поле оставлено пустым."
+        )
+    return _VAT_VALUES[text], None
+
+
 def _text(value: Any) -> str:
     return "" if value is None else str(value).strip()
 
@@ -314,6 +339,9 @@ def normalize_listing(
         values["price_type"], price_type_warning = _price_type(raw_price_type)
     if price_type_warning:
         warnings.append(price_type_warning)
+    values["vat"], vat_warning = _vat(_lookup(row, "vat"))
+    if vat_warning:
+        warnings.append(vat_warning)
     if warnings:
         values["import_warnings"] = warnings
     adjustments = _parse_adjustments(_lookup(row, "adjustments"))

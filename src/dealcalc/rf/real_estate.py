@@ -847,23 +847,33 @@ def reconcile_approaches(
     if divergence_base not in bases:
         raise ValueError("divergence_base must be 'min', 'mean' or 'max'")
     base = bases[divergence_base]
-    divergence = None if base == 0 else (high - low) / base * 100
+    # Equal values do not diverge (all zero included); a zero base below a
+    # positive value makes the divergence unbounded — above any threshold.
+    if high == low:
+        divergence = 0.0
+    elif base == 0:
+        divergence = math.inf
+    else:
+        divergence = (high - low) / base * 100
+    shown = (
+        "(одно из значений равно 0) не ограничено и"
+        if math.isinf(divergence)
+        else f"{_round(divergence)}%"
+    )
 
     checks = []
     status = None
-    if divergence is None:
-        checks.append("Одно из значений равно 0: расхождение подходов не рассчитывается.")
-    elif divergence > threshold:
+    if divergence > threshold:
         if note is None:
             status = STATUS_NOT_RECONCILED
             checks.append(
-                f"Расхождение подходов {_round(divergence)}% больше порога {_round(threshold)}%: "
+                f"Расхождение подходов {shown} больше порога {_round(threshold)}%: "
                 "исследуйте причины и обоснуйте веса или выбор подхода (justification)."
             )
         else:
             status = STATUS_REVIEW
             checks.append(
-                f"Расхождение подходов {_round(divergence)}% больше порога {_round(threshold)}%; "
+                f"Расхождение подходов {shown} больше порога {_round(threshold)}%; "
                 "приведено обоснование оценщика."
             )
     excluded = [name for name in values if given[name] == 0]
@@ -901,7 +911,7 @@ def reconcile_approaches(
             name: None if reconciled == 0 else _round((value - reconciled) / reconciled * 100)
             for name, value in used.items()
         },
-        "divergence_pct": None if divergence is None else _round(divergence),
+        "divergence_pct": None if math.isinf(divergence) else _round(divergence),
         "divergence_base": divergence_base,
         "divergence_formula": f"(max − min) / {divergence_base} × 100",
         "max_divergence_pct": _round(threshold),
