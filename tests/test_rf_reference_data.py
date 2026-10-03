@@ -356,3 +356,17 @@ def test_mcp_source_ranges_is_keyword_only():
 
     with pytest.raises(TypeError):
         server.rf_income_capitalization(1_000_000, 10, "RUB", None, None, {"cap_rate_pct": {"low": 7, "high": 13}})
+
+
+def test_gross_share_in_fractions():
+    analogs = _three([
+        [{"name": "a", "type": "pct", "value": 10}],
+        [{"name": "a", "type": "pct", "value": -20}],
+        [{"name": "a", "type": "pct", "value": 30}],
+    ])
+    result = rf.comparative_approach(100, analogs, weighting="gross_share_fraction")
+
+    # S_i in fractions: 0.1, 0.2, 0.3; Σ(S_j + 1) = 3.6.
+    raw = [1 - s / 3.6 for s in (0.1, 0.2, 0.3)]
+    assert [item["weight_share"] for item in result["comparables"]] == [round(r / sum(raw), 4) for r in raw]
+    assert "в долях" in result["weighting_formula"]

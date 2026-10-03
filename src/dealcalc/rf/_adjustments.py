@@ -321,11 +321,15 @@ WEIGHTING_FORMULAS = {
     ),
     "gross_share": (
         "K_i = (1 − S_i / Σ(S_j + 1)) / Σ_k (1 − S_k / Σ(S_j + 1)), S_i — сумма модулей "
-        "корректировок аналога, %"
+        "корректировок аналога, % (10 % → 10)"
+    ),
+    "gross_share_fraction": (
+        "K_i = (1 − S_i / Σ(S_j + 1)) / Σ_k (1 − S_k / Σ(S_j + 1)), S_i — сумма модулей "
+        "корректировок аналога в долях (10 % → 0,10)"
     ),
 }
 # Rules that need the whole sample: the weight of an analog depends on the others.
-SAMPLE_WEIGHTINGS = ("count_share", "gross_share")
+SAMPLE_WEIGHTINGS = ("count_share", "gross_share", "gross_share_fraction")
 
 
 def analog_weight(
@@ -354,7 +358,8 @@ def sample_weights(adjusted: Sequence[Mapping[str, Any]], weighting: str) -> Opt
 
     ``count_share``: ``K_i = (S − M_i) / ((N − 1) S)`` by the number of
     adjustments; ``gross_share``: ``K_i ∝ 1 − S_i / Σ(S_j + 1)`` by the sum
-    of absolute adjustments, %. Both sum to 1.
+    of absolute adjustments, % (``gross_share_fraction`` — the same sum in
+    fractions; the "+ 1" makes the units matter). All sum to 1.
     """
 
     if weighting not in SAMPLE_WEIGHTINGS:
@@ -368,7 +373,8 @@ def sample_weights(adjusted: Sequence[Mapping[str, Any]], weighting: str) -> Opt
         if total == 0:
             return [1 / count] * count
         return [(total - number) / ((count - 1) * total) for number in numbers]
-    gross = [item["gross_adjustment_raw_pct"] or 0 for item in adjusted]
+    scale = 1 if weighting == "gross_share" else 1 / 100
+    gross = [(item["gross_adjustment_raw_pct"] or 0) * scale for item in adjusted]
     denominator = sum(value + 1 for value in gross)
     raw = [1 - value / denominator for value in gross]
     return [value / sum(raw) for value in raw]

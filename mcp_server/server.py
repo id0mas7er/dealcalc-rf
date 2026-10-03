@@ -203,7 +203,8 @@ def rf_comparative_approach(
     выбора: поправка до 30 % — среднее, больше — минимальная поправка в интервале
     (отступление — замечание). Скидку на торг ставьте первой. weighting: manual | inverse_gross |
     inverse_count | count_share (K = (S − M)/((N − 1)·S) по числу корректировок) |
-    gross_share (K ∝ 1 − S_i/Σ(S_j + 1) по сумме модулей корректировок, %).
+    gross_share (K ∝ 1 − S_i/Σ(S_j + 1) по сумме модулей корректировок, %: 10 % → 10) |
+    gross_share_fraction (то же, S_i в долях: 10 % → 0,10).
     Показываются все шаги, валовая и итоговая корректировки, коэффициент вариации (33%)."""
     return rf.comparative_approach(subject_area_sqm, comparables, currency, weighting, context=context)
 
@@ -565,7 +566,8 @@ def rf_vehicle_comparative_approach(
     synonyms: {каноническое имя: [написания]} — для марок и моделей; synonyms_file —
     локальный JSON {"brands": {...}, "models": {...}}. Ограничения по году и пробегу задаёт оценщик
     (умолчаний нет). adjustments — как в rf_comparative_approach, abs — в рублях;
-    weighting: manual | inverse_gross | inverse_count | count_share | gross_share."""
+    weighting: manual | inverse_gross | inverse_count | count_share | gross_share |
+    gross_share_fraction."""
     return rf.vehicle_comparative_approach(
         subject,
         comparables,
