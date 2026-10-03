@@ -277,7 +277,7 @@ def _step_range_review(result: Mapping[str, Any]) -> tuple:
                 continue
             value = step.get("value", step.get("exponent"))
             label = f"Аналог {item.get('index')}, шаг «{step.get('name')}»"
-            justified = bool(step.get("justification"))
+            justified = bool(str(step.get("justification") or "").strip())
             choice = step.get("choice") or {}
             if step.get("within_range") is False:
                 bounds = step["range"]

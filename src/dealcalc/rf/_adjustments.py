@@ -61,8 +61,9 @@ def source_range(name: str, bounds: Any) -> Dict[str, Any]:
             raise ValueError(f"{name}: the extended interval must contain low and high")
         result.update(extended_low=extended_low, extended_high=extended_high)
     for key in ("source", "date", "page", "justification"):
-        if bounds.get(key) not in (None, ""):
-            result[key] = str(bounds[key]).strip()
+        text = "" if bounds.get(key) is None else str(bounds[key]).strip()
+        if text:
+            result[key] = text
     return result
 
 
@@ -291,8 +292,9 @@ def apply_adjustments(
                 record["choice"] = _choice(kind, bounds, checked, price, step)
         # The evidence of the step travels with it into the result.
         for key in ("source", "date", "page", "justification"):
-            if step.get(key) not in (None, ""):
-                record[key] = str(step[key])
+            text = "" if step.get(key) is None else str(step[key]).strip()
+            if text:
+                record[key] = text
         applied.append(record)
         price = new_price
 

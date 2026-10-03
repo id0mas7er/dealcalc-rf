@@ -311,3 +311,28 @@ def test_extended_interval_must_contain_the_interval():
             "name": "Торг", "type": "coef", "value": 0.9,
             "range": {"low": 0.86, "high": 0.93, "extended_low": 0.88, "extended_high": 0.95},
         })
+
+
+# Codex review of 0.7.0.
+
+
+def test_blank_justification_does_not_excuse_a_step():
+    result = _range_result(0.90, justification="   ")
+
+    assert any("границ" in check for check in result["checks"])
+
+
+def test_blank_justification_does_not_excuse_a_source_range():
+    result = rf.income_capitalization(
+        1_000_000, 15, source_ranges={"cap_rate_pct": {"low": 7, "high": 13, "justification": "  "}}
+    )
+
+    assert any("cap_rate_pct" in check for check in result["checks"])
+    assert "justification" not in result["source_ranges"]["cap_rate_pct"]
+
+
+def test_mcp_context_stays_positional():
+    server = pytest.importorskip("mcp_server.server", exc_type=ImportError)
+    context = {"valuation_date": "2026-10-01", "value_type": "рыночная"}
+
+    assert server.rf_income_capitalization(1_000_000, 10, "RUB", None, context)["context"]["valuation_date"] == "2026-10-01"
