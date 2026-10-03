@@ -68,14 +68,30 @@ _SIGNING = {
 }
 
 
-# Results of a calculation that are a value (or a rent) of the object, not an
-# intermediate figure (NOI, rate, depreciation).
-_VALUE_KEYS = (
-    "reconciled_value", "indicated_value", "residual_value", "weighted_value", "interest_value",
-    "business_liquidation_value", "liquidation_value", "market_value", "actual_share_value", "unit_value",
-    "equity_value_100pct", "value_100pct", "invested_capital_value",
-    "gross_rent_year", "gross_rent_month", "rent_sqm_year", "rent_sqm_month",
-)
+# The result of each method that is a value (or a rent) of the object, not
+# an input or an intermediate figure (the value of the whole business behind
+# an interest, the market value behind a liquidation value, NOI, rates).
+_VALUE_KEYS = {
+    "RECONCILIATION": ("reconciled_value",),
+    "COMPARABLE_UNIT_PRICE": ("indicated_value",),
+    "VEHICLE_COMPARATIVE": ("indicated_value",),
+    "DIRECT_CAPITALIZATION": ("indicated_value",),
+    "DCF": ("indicated_value",),
+    "GROSS_RENT_MULTIPLIER": ("indicated_value",),
+    "PROPERTY_COST_APPROACH": ("indicated_value",),
+    "MACHINERY_COST": ("residual_value",),
+    "QUALITATIVE_ADJUSTMENTS": ("weighted_value", "range_value"),
+    "BUSINESS_EQUITY_DCF": ("equity_value_100pct",),
+    "BUSINESS_MULTIPLE": ("value_100pct",),
+    "BUSINESS_NET_ASSETS": ("equity_value_100pct",),
+    "BUSINESS_INTEREST_VALUE": ("interest_value",),
+    "BUSINESS_LIQUIDATION": ("business_liquidation_value",),
+    "ASSET_LIQUIDATION_VALUE": ("liquidation_value",),
+    "DSD_NET_ASSETS": ("actual_share_value",),
+    "PIF_UNIT_DCF": ("unit_value",),
+    "MARKET_RENT_COST_PLUS": ("gross_rent_year", "gross_rent_month", "rent_sqm_year", "rent_sqm_month"),
+    "CELLULAR_REVERSE_CAPITALIZATION": ("gross_rent_year", "gross_rent_month"),
+}
 # Rounding of the final value against the calculated one.
 FINAL_VALUE_TOLERANCE_PCT = 1.0
 
@@ -252,7 +268,12 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
     form_given = isinstance(assignment, Mapping) and _present(assignment.get("final_value_form"))
 
     # ФСО VI, пп. 1–2, 7: the final value follows from the calculations.
-    values = [calculation[key] for calculation in calculations for key in _VALUE_KEYS if _number(calculation.get(key))]
+    values = [
+        calculation[key]
+        for calculation in calculations
+        for key in _VALUE_KEYS.get((calculation.get("method_card") or {}).get("id"), ())
+        if _number(calculation.get(key))
+    ]
     if calculations and not values:
         checks.append(
             "п. 7 (13) approaches.calculations: нет расчёта стоимости — только промежуточные показатели "
@@ -293,6 +314,8 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
         and not interval["low"] <= final_value <= interval["high"]
     ):
         checks.append("ФСО №7, п. 30: итоговая стоимость вне интервала value_interval.")
+    if isinstance(final_value, (int, float)) and not isinstance(final_value, bool) and not math.isfinite(final_value):
+        checks.append(f"п. 14: итоговая стоимость {final_value} — не конечное число.")
     if _present(final_value) and not form_given and (
         isinstance(final_value, bool) or not isinstance(final_value, (int, float))
     ):
