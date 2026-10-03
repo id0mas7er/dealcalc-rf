@@ -273,13 +273,22 @@ def _step_range_review(result: Mapping[str, Any]) -> tuple:
     guardrails: List[str] = []
     for item in _observations(result):
         for step in item.get("adjustments") or []:
-            if not isinstance(step, Mapping) or "range" not in step:
+            if not isinstance(step, Mapping):
                 continue
             value = step.get("value", step.get("exponent"))
             label = f"Аналог {item.get('index')}, шаг «{step.get('name')}»"
             justified = bool(str(step.get("justification") or "").strip())
             choice = step.get("choice") or {}
-            if step.get("within_range") is False:
+            if step.get("selection") == "smallest_of_all":
+                chosen = step["chosen"]
+                found = _review(
+                    f"{label}: все варианты дают поправку больше 30 % — взята наименьшая "
+                    f"({chosen['adjustment_pct']} %, «{chosen['label']}»)",
+                    justified,
+                )
+            elif "range" not in step:
+                continue
+            elif step.get("within_range") is False:
                 bounds = step["range"]
                 found = _out_of_range(
                     label,

@@ -197,7 +197,9 @@ def rf_comparative_approach(
     идущие суммируются и применяются один раз), coef (value — коэффициент таблицы
     справочника, 0,94), ratio (subject, analog — коэффициенты объекта и аналога к одной
     базе: этаж, класс, индекс цен на дату), abs (руб./м²), param (subject, analog,
-    exponent — коэффициент торможения), depreciation (analog_pct, subject_pct). У шага —
+    exponent — коэффициент торможения), staged (stages — этапы вариантов с label: среднее
+    уравнение → уравнения границ → таблица; берётся первый этап с поправкой до 30 %,
+    иначе наименьшая с justification), depreciation (analog_pct, subject_pct). У шага —
     source, date, page, justification и range {low, high, mean, extended_low,
     extended_high} — границы справочника (вне границ — замечание); с mean — правило
     выбора: поправка до 30 % — среднее, больше — минимальная поправка в интервале

@@ -370,3 +370,90 @@ def test_gross_share_in_fractions():
     raw = [1 - s / 3.6 for s in (0.1, 0.2, 0.3)]
     assert [item["weight_share"] for item in result["comparables"]] == [round(r / sum(raw), 4) for r in raw]
     assert "в долях" in result["weighting_formula"]
+
+
+# Cascade of variants (area adjustment by regression): the mean equation, the
+# equations of the bounds, the table; the first stage within 30 % wins, else
+# the smallest of all with the appraiser's comment.
+
+
+def _param(label, exponent, subject=2000, analog=10000):
+    return {"label": label, "type": "param", "subject": subject, "analog": analog, "exponent": exponent}
+
+
+def _staged(stages, **extra):
+    step = {"name": "Площадь", "type": "staged", "stages": stages, **extra}
+    result = rf.comparative_approach(100, [_analog([step])])
+    return result, result["comparables"][0]["adjustments"][0]
+
+
+def test_mean_equation_within_threshold_is_taken():
+    _, step = _staged([[_param("среднее", -0.25, 2000, 2500)], [_param("нижняя", -0.20, 2000, 2500)]])
+
+    assert step["chosen"]["label"] == "среднее"
+    assert step["selection"] == "within_threshold"
+    assert step["factor"] == round((2000 / 2500) ** -0.25, 4)
+
+
+def test_bound_equation_with_the_smaller_adjustment():
+    _, step = _staged([
+        [_param("среднее", -0.25)],
+        [_param("нижняя", -0.20), _param("верхняя", -0.10)],
+        [{"label": "таблица", "type": "coef", "value": 1.25}],
+    ])
+
+    assert step["chosen"]["label"] == "верхняя"
+    assert step["chosen"]["stage"] == 2
+    assert [variant["adjustment_pct"] for variant in step["variants"]] == [
+        round((5 ** 0.25 - 1) * 100, 2), round((5 ** 0.20 - 1) * 100, 2), round((5 ** 0.10 - 1) * 100, 2)
+    ]
+
+
+def test_table_when_the_equations_exceed_the_threshold():
+    result, step = _staged([
+        [_param("среднее", -0.25)],
+        [_param("нижняя", -0.30), _param("верхняя", -0.20)],
+        [{"label": "таблица", "type": "coef", "value": 1.25}],
+    ])
+
+    assert step["chosen"]["label"] == "таблица"
+    assert step["price_after"] == 125_000
+    assert not any("Площадь" in check for check in result["checks"])
+
+
+def test_smallest_of_all_without_comment_is_a_check():
+    result, step = _staged([
+        [_param("среднее", -0.25)],
+        [_param("нижняя", -0.30), _param("верхняя", -0.20)],
+        [{"label": "таблица", "type": "coef", "value": 1.35}],
+    ])
+
+    assert step["selection"] == "smallest_of_all"
+    assert step["chosen"]["label"] == "таблица"
+    assert any("Площадь" in check and "наименьш" in check for check in result["checks"])
+
+
+def test_smallest_of_all_with_comment_is_a_reminder():
+    result, _ = _staged(
+        [[_param("среднее", -0.25)], [{"label": "таблица", "type": "coef", "value": 1.35}]],
+        justification="других аналогов нет",
+    )
+
+    assert not any("Площадь" in check for check in result["checks"])
+    assert any("наименьш" in item for item in result["guardrails"])
+
+
+def test_staged_counts_as_one_adjustment():
+    _, step = _staged([[_param("среднее", -0.25, 2000, 2500)]])
+    result = rf.comparative_approach(
+        100, [_analog([{"name": "Площадь", "type": "staged", "stages": [[_param("среднее", -0.25, 2000, 2500)]]}])]
+    )
+
+    assert result["comparables"][0]["gross_adjustment_pct"] == round(((2000 / 2500) ** -0.25 - 1) * 100, 2)
+
+
+def test_staged_variant_types():
+    with pytest.raises(ValueError, match="variant"):
+        _staged([[{"label": "x", "type": "pct_group", "value": 5}]])
+    with pytest.raises(ValueError, match="stages"):
+        _staged([])

@@ -176,7 +176,15 @@ def apply_adjustments(
       table (0.94 for a bargaining discount of 6 %);
     * ``ratio`` multiplies by ``subject / analog`` — coefficients of the
       subject and of the analog relative to one base (a floor, a class, a
-      price index on the valuation date and on the price date).
+      price index on the valuation date and on the price date);
+    * ``staged`` — a cascade of variants of one adjustment: ``stages`` is a
+      list of stages, each a list of variants (``pct``, ``coef``, ``ratio``,
+      ``param`` or ``abs`` steps with a ``label``) — for instance the mean
+      regression equation, then the equations of the bounds, then the table
+      of the reference book. Within a stage the variant with the smallest
+      adjustment is taken; the first stage where it is within 30 % wins,
+      otherwise the smallest of all evaluated variants (``selection``
+      ``smallest_of_all``, which needs the appraiser's ``justification``).
 
     ``range`` (``{"low", "high"}``, optional ``mean`` and the extended
     interval ``extended_low`` / ``extended_high``) holds the bounds of the
@@ -253,6 +261,16 @@ def apply_adjustments(
             factor = subject / analog
             new_price = price * factor
             record.update(subject=subject, analog=analog, factor=round(factor, 4))
+        elif kind == "staged":
+            evaluated, chosen, selection = _staged_choice(price, step.get("stages"), name_prefix)
+            new_price = price * chosen["factor"]
+            record.update(
+                variants=[_public_variant(item) for item in evaluated],
+                chosen=_public_variant(chosen),
+                selection=selection,
+                threshold_pct=CHOICE_THRESHOLD_PCT,
+                factor=round(chosen["factor"], 4),
+            )
         elif kind == "depreciation":
             analog_pct = _finite(f"{name_prefix}.analog_pct", step.get("analog_pct"))
             subject_pct = _finite(
@@ -269,8 +287,8 @@ def apply_adjustments(
             )
         else:
             raise ValueError(
-                f"{name_prefix}.type must be 'pct', 'pct_group', 'coef', 'ratio', 'abs', 'param' "
-                "or 'depreciation'"
+                f"{name_prefix}.type must be 'pct', 'pct_group', 'coef', 'ratio', 'abs', 'param', "
+                "'staged' or 'depreciation'"
             )
         if new_price <= 0:
             raise ValueError(f"{name_prefix}: adjusted price must be greater than 0")
@@ -308,6 +326,52 @@ def apply_adjustments(
         "gross_adjustment_pct": _share_pct(gross_change, base_price),
         # Unrounded, for weights computed over the whole sample.
         "gross_adjustment_raw_pct": None if base_price == 0 else gross_change / base_price * 100,
+    }
+
+
+_STAGED_TYPES = ("pct", "coef", "ratio", "param", "abs")
+
+
+def _staged_choice(price: float, stages: Any, prefix: str) -> tuple:
+    """Evaluate the stages of a cascade in order; see ``apply_adjustments``."""
+
+    if not isinstance(stages, Sequence) or isinstance(stages, (str, bytes)) or not stages:
+        raise ValueError(f"{prefix}.stages must be a non-empty list of stages (lists of variants)")
+    evaluated: List[Dict[str, Any]] = []
+    for stage_number, stage in enumerate(stages, start=1):
+        stage_prefix = f"{prefix}.stages[{stage_number - 1}]"
+        if not isinstance(stage, Sequence) or isinstance(stage, (str, bytes)) or not stage:
+            raise ValueError(f"{stage_prefix} must be a non-empty list of variants")
+        current = []
+        for number, variant in enumerate(stage):
+            variant_prefix = f"{stage_prefix}[{number}]"
+            if not isinstance(variant, Mapping) or variant.get("type") not in _STAGED_TYPES:
+                raise ValueError(f"{variant_prefix}: variant type must be one of {', '.join(_STAGED_TYPES)}")
+            if "range" in variant:
+                raise ValueError(f"{variant_prefix}: range is not supported inside staged variants")
+            label = variant.get("label")
+            if not isinstance(label, str) or not label.strip():
+                raise ValueError(f"{variant_prefix}.label must be a non-empty string")
+            adjusted = apply_adjustments(price, [{**variant, "name": label}], variant_prefix)
+            factor = adjusted["adjusted_price"] / price
+            current.append(
+                {"stage": stage_number, "label": label.strip(), "type": variant["type"], "factor": factor,
+                 "size": abs(factor - 1) * 100}
+            )
+        evaluated += current
+        best = min(current, key=lambda item: item["size"])
+        if best["size"] <= CHOICE_THRESHOLD_PCT:
+            return evaluated, best, "within_threshold"
+    return evaluated, min(evaluated, key=lambda item: item["size"]), "smallest_of_all"
+
+
+def _public_variant(item: Mapping[str, Any]) -> Dict[str, Any]:
+    return {
+        "stage": item["stage"],
+        "label": item["label"],
+        "type": item["type"],
+        "factor": round(item["factor"], 4),
+        "adjustment_pct": money(item["size"]),
     }
 
 
