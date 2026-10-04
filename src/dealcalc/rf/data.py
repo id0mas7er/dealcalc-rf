@@ -179,10 +179,14 @@ def parse_number(value: Any, field: str) -> Optional[float]:
                 text = text.replace(",", "")
         elif text.count(",") == 1:
             text = text.replace(",", ".")
-        elif text.count(",") > 1:
-            text = text.replace(",", "")
-        elif text.count(".") > 1:
-            text = text.replace(".", "")
+        elif text.count(",") > 1 or text.count(".") > 1:
+            # Several separators of one kind are thousands only in groups of
+            # three digits (1,234,567 or 1.234.567); "1,5,2" is not 152.
+            separator = "," if "," in text else "."
+            groups = text.lstrip("+-").split(separator)
+            if not (1 <= len(groups[0]) <= 3 and all(len(group) == 3 for group in groups[1:])):
+                raise ValueError(f"{field}: ambiguous number {text!r} — several separators {separator!r}")
+            text = text.replace(separator, "")
         try:
             number = float(Decimal(text) * multiplier)
         except InvalidOperation as exc:
@@ -293,9 +297,7 @@ def normalize_listing(
     if listing_kind not in LISTING_TYPES:
         raise ValueError(f"listing_type must be one of {', '.join(sorted(LISTING_TYPES))}")
 
-    source_name = _text(source or _lookup(row, "source"))
-    if source:
-        source_name = _text(source)
+    source_name = _text(source) if source else _text(_lookup(row, "source"))
     if not source_name:
         raise ValueError("source must be provided")
 

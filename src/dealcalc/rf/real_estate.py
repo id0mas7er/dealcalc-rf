@@ -207,7 +207,8 @@ def comparative_approach(
     weighted_unit_price = _round(
         sum(price * weight for price, weight in zip(raw_prices, scaled)) / sum(scaled)
     )
-    adjusted_prices = [item["adjusted_unit_price"] for item in normalized]
+    # Statistics of the sample come from unrounded prices, as the weighted mean does.
+    adjusted_prices = raw_prices
     sample_variation = variation(adjusted_prices)
     return {
         "approach": "comparative",

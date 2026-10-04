@@ -2,6 +2,7 @@
 
 import json
 import math
+from pathlib import Path
 
 import pytest
 
@@ -268,7 +269,7 @@ def test_homogeneity_compares_unrounded_coefficient():
 
 
 def test_docs_offer_prices_are_guardrails():
-    with open("docs/russia.md", encoding="utf-8") as handle:
+    with open(Path(__file__).resolve().parents[1] / "docs" / "russia.md", encoding="utf-8") as handle:
         text = handle.read()
 
     assert "использование цен предложения и неоднородная выборка отмечаются в\n`checks`" not in text

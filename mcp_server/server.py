@@ -139,7 +139,8 @@ def rf_check_report(report: dict) -> dict:
     recommendations_not_used_reason, object {description, rights}, assumptions,
     market_analysis, approaches {selection_justification, rejected, rejected_comment,
     calculations — результаты расчётов целиком, с method_card и status}, final_value
-    (совпадает с результатом расчёта или согласования до 1 %, иначе final_value_justification) (число), limits_of_use, value_interval
+    (число; совпадает с результатом расчёта или согласования до 1 %, иначе нужен
+    final_value_justification), limits_of_use, value_interval
     {low, high, justification} — для недвижимости по ФСО №7, п. 30 (если задание не указывает
     иное: assignment.interval_not_required = true), documents,
     sources [{url или reference, date}], signing {form: paper | electronic, confirmed: [...]}:

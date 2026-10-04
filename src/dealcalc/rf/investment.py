@@ -188,8 +188,10 @@ def asset_liquidation_value(
     rate = _rate("discount_rate_pct", discount_rate_pct)
     typical = _flows([typical_exposure_months])[0]
     forced = _flows([liquidation_exposure_months])[0]
-    if typical <= 0 or forced < 0:
-        raise ValueError("exposure periods must be positive months")
+    if typical <= 0:
+        raise ValueError("typical_exposure_months must be greater than 0")
+    if forced < 0:
+        raise ValueError("liquidation_exposure_months must be non-negative")
     if forced > typical:
         raise ValueError("liquidation_exposure_months must not exceed typical_exposure_months")
     costs = _flows([additional_costs])[0]

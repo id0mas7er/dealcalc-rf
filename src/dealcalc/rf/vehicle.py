@@ -208,6 +208,11 @@ def vehicle_comparative_approach(
     prices against the 33% homogeneity threshold. No automatic depreciation
     coefficient is imposed.
 
+    The indicated value is the weighted median of adjusted prices without
+    interpolation: the first price, in ascending order, whose cumulative
+    weight reaches half of the total. With an even split it is the lower
+    median — of two analogs with equal weights, the cheaper one.
+
     Brands and models are matched through the package dictionary
     ``vehicle_synonyms.json`` and transliteration. ``synonyms``
     (``{canonical name: [spellings]}``, applied to brands and models) and
@@ -334,8 +339,10 @@ def vehicle_comparative_approach(
 
     weight_sum = sum(weight for _, weight in weighted_items)
     weighted_mean = sum(value * weight for value, weight in weighted_items) / weight_sum
-    adjusted_prices = [item["adjusted_price_rub"] for item in matched]
+    # Statistics of the sample come from unrounded prices, as the mean does.
+    adjusted_prices = [price for price, _ in weighted_items]
     price_variation = variation(adjusted_prices)
+    median = _weighted_median(weighted_items)
     checks = observation_checks(matched)
     checks += variation_checks(price_variation, len(matched))
     matched_indices = {item["index"] for item in matched}
@@ -364,9 +371,9 @@ def vehicle_comparative_approach(
         "rejected_count": rejected,
         "weighting": weighting,
         "weighting_formula": WEIGHTING_FORMULAS[weighting],
-        "weighted_median_price": money(_weighted_median(weighted_items)),
+        "weighted_median_price": money(median),
         "weighted_mean_price": money(weighted_mean),
-        "indicated_value": money(_weighted_median(weighted_items)),
+        "indicated_value": money(median),
         # The spread of analogs, not an interval of value.
         "analogs_spread": {
             "low": money(min(adjusted_prices)),
