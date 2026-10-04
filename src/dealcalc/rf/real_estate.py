@@ -130,9 +130,8 @@ def comparative_approach(
     ``weighting``: ``manual`` (``weight`` of each comparable, default 1),
     ``inverse_gross`` (w ∝ 1 / (1 + gross adjustment / 100)),
     ``inverse_count`` (w ∝ 1 / (1 + number of adjustments)), ``count_share``
-    (K = (S − M) / ((N − 1) S) by the number of adjustments) or
-    ``gross_share`` (K ∝ 1 − S_i / Σ(S_j + 1) by the sum of absolute
-    adjustments, %).
+    (method 1: K = (S − M) / ((N − 1) S)) or ``count_share_2`` (method 2:
+    K ∝ 1 − S_i / Σ(S_j + 1)), both by the number of adjustments.
 
     The indicated value is the rounded weighted unit price times the subject
     area. ``variation`` reports the coefficient of variation of adjusted unit
@@ -188,7 +187,6 @@ def comparative_approach(
             "adjustments": adjusted["adjustments"],
             "net_adjustment_pct": adjusted["net_adjustment_pct"],
             "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
-            "adjustments_sum_abs_pct": adjusted["adjustments_sum_abs_pct"],
             "adjustments_count": adjusted["adjustments_count"],
             "adjusted_unit_price": _round(adjusted_unit_price),
             "weight": round(weight, 6),

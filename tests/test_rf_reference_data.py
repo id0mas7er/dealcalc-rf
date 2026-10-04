@@ -172,25 +172,32 @@ def test_count_share_single_analog():
     assert result["comparables"][0]["weight_share"] == 1
 
 
-def test_gross_share_weights():
+def test_count_share_2_weights():
     analogs = _three([
         [{"name": "a", "type": "pct", "value": 10}],
-        [{"name": "a", "type": "pct", "value": -20}],
-        [{"name": "a", "type": "pct", "value": 30}],
+        [{"name": "a", "type": "pct", "value": -20}, {"name": "b", "type": "pct", "value": 5}],
+        [{"name": "a", "type": "pct", "value": 30}, {"name": "b", "type": "pct", "value": 5},
+         {"name": "c", "type": "coef", "value": 0.9}],
     ])
-    result = rf.comparative_approach(100, analogs, weighting="gross_share")
+    result = rf.comparative_approach(100, analogs, weighting="count_share_2")
 
-    # K ∝ 1 − S_i / Σ(S_j + 1): S = 10, 20, 30 %.
-    assert [item["weight_share"] for item in result["comparables"]] == [
-        round(53 / 129, 4), round(43 / 129, 4), round(33 / 129, 4)
-    ]
+    # K ∝ 1 − S_i / Σ(S_j + 1): S = 1, 2, 3 adjustments; Σ(S_j + 1) = 9.
+    raw = [1 - s / 9 for s in (1, 2, 3)]
+    assert [item["weight_share"] for item in result["comparables"]] == [round(r / sum(raw), 4) for r in raw]
+    assert "количество" in result["weighting_formula"]
+
+
+@pytest.mark.parametrize("removed", ["gross_share", "gross_share_fraction"])
+def test_sum_based_method_2_is_removed(removed):
+    with pytest.raises(ValueError, match="count_share_2"):
+        rf.comparative_approach(100, _three([[], [], []]), weighting=removed)
 
 
 def test_sample_weighting_rejects_manual_weights():
     analogs = [_analog([], weight=2), _analog([])]
 
     with pytest.raises(ValueError, match="weighting='manual'"):
-        rf.comparative_approach(100, analogs, weighting="gross_share")
+        rf.comparative_approach(100, analogs, weighting="count_share_2")
 
 
 def test_sample_weightings_are_reminded_as_heuristics():
@@ -363,18 +370,23 @@ def test_mcp_source_ranges_is_keyword_only():
         server.rf_income_capitalization(1_000_000, 10, "RUB", None, None, {"cap_rate_pct": {"low": 7, "high": 13}})
 
 
-def test_gross_share_in_fractions():
-    analogs = _three([
-        [{"name": "a", "type": "pct", "value": 10}],
-        [{"name": "a", "type": "pct", "value": -20}],
-        [{"name": "a", "type": "pct", "value": 30}],
-    ])
-    result = rf.comparative_approach(100, analogs, weighting="gross_share_fraction")
+def test_count_share_2_without_adjustments_is_equal():
+    result = rf.comparative_approach(100, _three([[], [], []]), weighting="count_share_2")
 
-    # S_i in fractions: 0.1, 0.2, 0.3; Σ(S_j + 1) = 3.6.
-    raw = [1 - s / 3.6 for s in (0.1, 0.2, 0.3)]
-    assert [item["weight_share"] for item in result["comparables"]] == [round(r / sum(raw), 4) for r in raw]
-    assert "в долях" in result["weighting_formula"]
+    assert [item["weight_share"] for item in result["comparables"]] == [0.3333, 0.3333, 0.3333]
+
+
+def test_vehicle_count_share_2():
+    analogs = [
+        {"brand": "Kia", "model": "Rio", "price_rub": 1_000_000, "source": "S", "date": "2026-09-01",
+         "price_type": "offer", "adjustments": [{"name": "Торг", "type": "pct", "value": -5}]},
+        {"brand": "Kia", "model": "Rio", "price_rub": 1_100_000, "source": "S", "date": "2026-09-01",
+         "price_type": "offer"},
+    ]
+    result = rf.vehicle_comparative_approach({"brand": "Kia", "model": "Rio"}, analogs, weighting="count_share_2")
+
+    # S = (1, 0): 1 − 1/3 and 1 − 0/3 → 0.4 and 0.6.
+    assert [item["weight_share"] for item in result["comparables"]] == [0.4, 0.6]
 
 
 # Cascade of variants (area adjustment by regression): the mean equation, the
@@ -464,25 +476,13 @@ def test_staged_variant_types():
         _staged([])
 
 
-def test_gross_share_sums_adjustments_as_written():
+def test_count_share_2_counts_factors_of_a_group():
     analogs = [
-        _analog([{"name": "a", "type": "pct", "value": -10}, {"name": "b", "type": "pct", "value": 20}]),
+        _analog([{"name": "a", "type": "pct_group", "value": -10}, {"name": "b", "type": "pct_group", "value": 20}]),
         _analog([{"name": "a", "type": "pct", "value": 10}]),
     ]
-    result = rf.comparative_approach(100, analogs, weighting="gross_share")
+    result = rf.comparative_approach(100, analogs, weighting="count_share_2")
 
-    # |−10| + |+20| = 30 (not 10 + 18 = 28 of the chain); Σ(S_j + 1) = 42.
-    assert [item["adjustments_sum_abs_pct"] for item in result["comparables"]] == [30, 10]
-    assert [item["weight_share"] for item in result["comparables"]] == [round(12 / 44, 4), round(32 / 44, 4)]
-
-
-def test_sum_of_written_adjustments_by_step_type():
-    steps = [
-        {"name": "Торг", "type": "coef", "value": 0.9},
-        {"name": "Этаж", "type": "ratio", "subject": 1.05, "analog": 1.0},
-        {"name": "Парковка", "type": "abs", "value": -9_450},
-    ]
-    item = rf.comparative_approach(100, [_analog(steps)])["comparables"][0]
-
-    # 10 % + 5 % + 9450 / 94 500 = 10 %.
-    assert item["adjustments_sum_abs_pct"] == 25
+    # S = (2, 1); Σ(S_j + 1) = 5: 1 − 2/5 and 1 − 1/5 → 3/7 and 4/7.
+    assert [item["adjustments_count"] for item in result["comparables"]] == [2, 1]
+    assert [item["weight_share"] for item in result["comparables"]] == [round(3 / 7, 4), round(4 / 7, 4)]

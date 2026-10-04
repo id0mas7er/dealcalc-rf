@@ -212,8 +212,8 @@ adjustments}`. Шаги `adjustments`: `{"name", "type": "pct", "value": -5}`
 `analog` — коэффициенты к одной базе), `depreciation`. У шага — `source`,
 `date`, `page` и `range` {`low`, `high`} — границы справочника. Веса —
 `weighting`: `manual` (поле `weight`), `inverse_gross`, `inverse_count`,
-`count_share`, `gross_share`, `gross_share_fraction` (единицы S_i — проценты
-или доли — выбирает оценщик).
+`count_share` (методика 1), `count_share_2` (методика 2) — обе по числу
+корректировок.
 
 **Коммерческая недвижимость, доходный подход.**
 `rf_net_operating_income` (ПВД → ДВД → ЧОД) → ставка: по рынку
