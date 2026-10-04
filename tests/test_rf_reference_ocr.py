@@ -110,7 +110,7 @@ def test_expense_pct_of_egi_by_default():
 
 
 @pytest.mark.parametrize("expense, message", [
-    ({"name": "X", "type": "pct", "value": 1, "base": "gross"}, "base must be 'egi' or 'pgi'"),
+    ({"name": "X", "type": "pct", "value": 1, "base": "gross"}, "base must be 'egi', 'pgi' or 'occupied'"),
     ({"name": "X", "type": "abs", "value": 1, "base": "pgi"}, "base applies to pct"),
 ])
 def test_invalid_expense_base(expense, message):

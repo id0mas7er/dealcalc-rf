@@ -124,10 +124,10 @@ RANGE_KINDS = ("values", "confidence")
 # reference books) or the appraiser's practice of the smallest adjustment.
 CHOICE_RULES = ("mean", "minimal")
 
-# Choice of the value within the interval of a reference book (the
-# appraiser's practice): an adjustment up to this size at the mean takes the
-# mean; a larger one takes the point of the interval (extended, if given)
-# giving the smallest adjustment.
+# An adjustment larger than this is a sign of a substantial difference
+# between the subject and the analog (Leifer). Under the appraiser's rule
+# ``choice_rule: "minimal"`` an adjustment up to it at the mean takes the
+# mean, a larger one the point of the interval giving the smallest one.
 CHOICE_THRESHOLD_PCT = 30.0
 
 
@@ -261,10 +261,12 @@ def apply_adjustments(
     within them (the extended interval, if given). ``domain`` (``{"low",
     "high"}``) of a ``param`` step is the range of x on which the equation was
     built; ``within_domain`` tells whether the subject and the analog lie in
-    it. With ``mean``, ``choice``
-    applies the rule of choice: an adjustment up to 30 % at the mean takes
-    the mean, a larger one the point of the interval giving the smallest
-    adjustment.
+    it. With ``mean``, ``choice`` applies the rule of choice of the step,
+    ``choice_rule``: ``mean`` (default, as the reference books) expects the
+    mean; ``minimal`` (the appraiser's practice) expects the mean for an
+    adjustment up to 30 % at the mean and otherwise the point of the
+    interval giving the smallest adjustment. An adjustment over 30 % at the
+    value taken is flagged (``within_threshold``).
     ``source``, ``date``, ``page`` and ``justification`` travel with the step.
     """
 

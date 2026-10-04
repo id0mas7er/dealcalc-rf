@@ -261,6 +261,15 @@ def physical_depreciation(
         "incurable_pct": money(incurable * 100),
         "total_pct": 100.0 if capped else money(total),
         "capped": capped,
+        "guardrails": (
+            [
+                "Возраст не меньше срока экономической жизни: для работающей машины срок "
+                "экономической жизни — не нормативный (амортизационный) срок; обоснуйте его "
+                "техническим состоянием и остаточным ресурсом."
+            ]
+            if age >= life
+            else []
+        ),
         "checks": (
             [
                 f"Расчётный износ {money(total)}% превышает 100% и ограничен 100%: "

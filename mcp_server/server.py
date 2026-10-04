@@ -241,7 +241,8 @@ def rf_net_operating_income(
     ПВД — готовой суммой или площадь × ставка аренды (руб./м² в год).
     ДВД = ПВД × (1 − недозагрузка) × (1 − недосбор) + прочие доходы.
     operating_expenses: {"name", "type": "abs" (руб./год) | "pct" (% ДВД; с "base": "pgi" —
-    % ПВД, как в справочнике), "value", range {low, high, mean} — границы справочника,
+    % ПВД, как в справочнике; "occupied" — % занятого ПВД, ПВД × загрузка, для расходов только
+    при занятости), "value", range {low, high, mean} — границы справочника,
     source, date, page, justification}."""
     return rf.net_operating_income(
         potential_gross_income,
@@ -536,7 +537,9 @@ def rf_asset_liquidation_value(
     V_л = V_р × (1 + r)^(−(T_типичный − T_вынужденный)/12) × (1 − d_вын) − доп. затраты;
     сроки в месяцах, ставка годовая. Множитель по срокам учитывает только стоимость
     времени. Скидка на вынужденность продажи (эластичность спроса) — forced_sale_discount_pct
-    с обязательным forced_sale_justification; без неё в guardrails напоминание.
+    с обязательным forced_sale_justification; без неё в guardrails напоминание. Это только
+    дополнительная часть сверх фактора времени: полную ликвидационную скидку из справочника
+    (опроса) сюда не передавать — она уже включает эффект сокращения срока.
     Для бизнеса при ликвидации — rf_business_liquidation_value."""
     return rf.asset_liquidation_value(
         market_value,

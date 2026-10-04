@@ -294,7 +294,9 @@ def net_operating_income(
 
     ``operating_expenses`` is a list of ``{"name", "type", "value"}`` items:
     ``abs`` is RUB per year, ``pct`` is a percent of ДВД or, with ``"base":
-    "pgi"``, of ПВД (the shares of reference books). Every item is shown in
+    "pgi"``, of ПВД (the shares of reference books), with ``"base":
+    "occupied"`` — of the occupied ПВД, ПВД × (1 − vacancy_pct/100), for
+    costs that arise only while the premises are let. Every item is shown in
     RUB in the result. An item may carry the bounds of its source
     (``range``) and ``source``, ``date``, ``page``, ``justification``.
     """
@@ -350,9 +352,12 @@ def net_operating_income(
             amount = value
         elif kind == "pct":
             base = "egi" if base is None else base
-            if base not in ("egi", "pgi"):
-                raise ValueError(f"{prefix}.base must be 'egi' or 'pgi'")
-            amount = (egi if base == "egi" else pgi) * value / 100
+            # occupied: ПВД × occupancy, for costs that arise only while the
+            # premises are let (Leifer, «Операционные расходы»).
+            bases = {"egi": egi, "pgi": pgi, "occupied": pgi - vacancy_loss}
+            if base not in bases:
+                raise ValueError(f"{prefix}.base must be 'egi', 'pgi' or 'occupied'")
+            amount = bases[base] * value / 100
             item["base"] = base
         else:
             raise ValueError(f"{prefix}.type must be 'abs' or 'pct'")
