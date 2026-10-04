@@ -203,7 +203,8 @@ def rf_comparative_approach(
     базе: этаж, класс, индекс цен на дату), abs (руб./м²), param (subject, analog,
     exponent — коэффициент торможения; domain {low, high} — граница применимости
     уравнения, вне её — замечание), staged (stages — этапы вариантов с label: среднее
-    уравнение → уравнения границ → таблица; берётся первый этап с поправкой до 30 %,
+    уравнение → уравнения границ расширенного интервала → таблица; берётся первый этап с
+    поправкой до 30 %,
     иначе наименьшая с justification), depreciation (analog_pct, subject_pct). У шага —
     source, date, page, justification, factor (фактор в группе pct_group) и range {low, high,
     mean, extended_low, extended_high, kind: values | confidence, source, date, page} —
