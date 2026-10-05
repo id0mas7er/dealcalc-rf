@@ -593,7 +593,7 @@ def method_card(
 
 OBSERVATION_FIELDS = (
     "source", "date", "date_updated", "price_collected_at", "url", "price_type", "conditions",
-    "reliability", "import_warnings", "listing_id_basis", "listing_id", "address", "vat",
+    "reliability", "price_note", "import_warnings", "listing_id_basis", "listing_id", "address", "vat",
 )
 _PRICE_TYPES = {
     "сделка": "сделка",
@@ -644,6 +644,12 @@ def observation_checks(items: Sequence[Mapping[str, Any]], date_keys: Sequence[s
 
     checks = []
     bad_dates = [item["index"] for item in items if item.get("date") and not _is_date(item["date"])]
+    bad_price_dates = [
+        item["index"]
+        for item in items
+        for key in ("price_collected_at", "date_updated")
+        if item.get(key) and not _is_date(item[key])
+    ]
     no_source = [item["index"] for item in items if not item.get("source")]
     no_date = [item["index"] for item in items if not any(item.get(key) for key in date_keys)]
     no_type = [item["index"] for item in items if not item.get("price_type")]
@@ -654,6 +660,11 @@ def observation_checks(items: Sequence[Mapping[str, Any]], date_keys: Sequence[s
     if bad_dates:
         checks.append(
             f"Дата цены не распознана у аналогов {bad_dates}: ожидается ГГГГ-ММ-ДД или ДД.ММ.ГГГГ."
+        )
+    if bad_price_dates:
+        checks.append(
+            f"Дата снятия цены / обновления не распознана у аналогов {sorted(set(bad_price_dates))}: "
+            "ожидается ГГГГ-ММ-ДД или ДД.ММ.ГГГГ."
         )
     if no_type:
         checks.append(f"Не указан тип цены (сделка/предложение) у аналогов {no_type}.")
