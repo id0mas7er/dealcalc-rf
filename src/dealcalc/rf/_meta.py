@@ -592,8 +592,9 @@ def method_card(
 
 
 OBSERVATION_FIELDS = (
-    "source", "date", "date_updated", "price_collected_at", "url", "price_type", "conditions",
-    "reliability", "price_note", "import_warnings", "listing_id_basis", "listing_id", "address", "vat",
+    "source", "date", "date_updated", "price_collected_at", "date_check", "url", "price_type",
+    "conditions", "reliability", "price_note", "import_warnings", "listing_id_basis", "listing_id",
+    "address", "vat",
 )
 _PRICE_TYPES = {
     "сделка": "сделка",

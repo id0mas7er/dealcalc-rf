@@ -53,6 +53,7 @@ def test_normalize_listing_maps_common_russian_fields():
         "date": "",
         "date_updated": "",
         "price_collected_at": "",
+        "date_check": "",
         "price_type": "предложение",
         "collected_at": "2026-10-01T00:00:00+00:00",
         "region": "",
