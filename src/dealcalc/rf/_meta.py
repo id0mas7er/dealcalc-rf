@@ -161,16 +161,20 @@ def _observations(result: Mapping[str, Any]) -> List[Mapping[str, Any]]:
 
 
 def _later_price_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[str]:
-    """Prices dated after the valuation date (ФСО III, п. 12; ФСО №10, п. 12)."""
+    """Prices dated after the valuation date (ФСО III, п. 12; ФСО №10, п. 12).
+
+    ``price_collected_at`` (живой поиск dealcalc-rf-collect) — когда цену
+    реально видели; ``date`` у таких аналогов — дата размещения объявления,
+    которая для ретроспективной выборки может быть задолго до даты цены."""
 
     if not context.get("valuation_date"):
         return []
     valuation = date.fromisoformat(context["valuation_date"])
-    later = [
-        item.get("index")
-        for item in _observations(result)
-        if item.get("date") and (_parse_date(item["date"]) or valuation) > valuation
-    ]
+    later = []
+    for item in _observations(result):
+        price_date = item.get("price_collected_at") or item.get("date")
+        if price_date and (_parse_date(price_date) or valuation) > valuation:
+            later.append(item.get("index"))
     if not later:
         return []
     return [
@@ -588,8 +592,8 @@ def method_card(
 
 
 OBSERVATION_FIELDS = (
-    "source", "date", "url", "price_type", "conditions", "reliability", "import_warnings",
-    "listing_id_basis", "listing_id", "address", "vat",
+    "source", "date", "date_updated", "price_collected_at", "url", "price_type", "conditions",
+    "reliability", "import_warnings", "listing_id_basis", "listing_id", "address", "vat",
 )
 _PRICE_TYPES = {
     "сделка": "сделка",

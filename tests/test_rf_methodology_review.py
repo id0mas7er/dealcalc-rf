@@ -87,6 +87,31 @@ def test_prices_before_valuation_date_pass():
     assert result["checks"] == []
 
 
+def test_price_collected_after_valuation_date_is_checked():
+    """date — дата размещения, но цену видели позже даты оценки (ретроспектива):
+    price_collected_at важнее date."""
+
+    result = rf.comparative_approach(
+        100,
+        [{**M, "price": 10e6, "area_sqm": 100, "date": "2026-07-01", "price_collected_at": "2026-10-05"},
+         {**M, "price": 10.5e6, "area_sqm": 100}],
+        context=C,
+    )
+
+    assert any("позже даты оценки" in check and "[1]" in check for check in result["checks"])
+
+
+def test_price_collected_before_valuation_date_passes():
+    result = rf.comparative_approach(
+        100,
+        [{**M, "price": 10e6, "area_sqm": 100, "price_collected_at": "2026-10-01"},
+         {**M, "price": 10.5e6, "area_sqm": 100}],
+        context=C,
+    )
+
+    assert result["checks"] == []
+
+
 # D05. Basis of capital in business valuation.
 
 

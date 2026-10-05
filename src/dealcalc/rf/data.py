@@ -42,6 +42,7 @@ _ALIASES = {
         "дата размещения",
         "размещено",
     ),
+    "date_updated": ("date_updated", "дата обновления", "обновлено"),
     "price_type": ("price_type", "тип цены"),
     "vat": ("vat", "ндс", "цена с ндс", "учёт ндс", "учет ндс"),
     "collected_at": ("collected_at", "дата сбора", "дата_сбора"),
@@ -105,6 +106,7 @@ _TEXT_FIELDS = {
     "cadastral_number",
     "vin",
     "date",
+    "date_updated",
     "collected_at",
     "region",
     "city",
@@ -278,7 +280,10 @@ def normalize_listing(
 ) -> Dict[str, Any]:
     """Normalize one marketplace row into the shared listing schema.
 
-    ``date`` is the publication date of the offer (the price date);
+    ``date`` is the publication date of the offer. For a fresh listing it is
+    the price date; a long-published listing shows the *current* price — the
+    price date then is when the price was seen (``price_collected_at``, live
+    search of dealcalc-rf-collect), and checks use it over ``date``.
     ``collected_at`` is when the file was collected and is not a price date.
     ``price_type`` defaults to "предложение": marketplace listings are offers.
 

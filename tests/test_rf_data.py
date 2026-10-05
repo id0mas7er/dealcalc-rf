@@ -37,6 +37,7 @@ def test_normalize_listing_maps_common_russian_fields():
         "cadastral_number": "",
         "vin": "",
         "date": "",
+        "date_updated": "",
         "price_type": "предложение",
         "collected_at": "2026-10-01T00:00:00+00:00",
         "region": "",
