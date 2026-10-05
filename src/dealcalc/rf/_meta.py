@@ -639,7 +639,10 @@ def _is_date(value: Any) -> bool:
         return False
 
 
-def observation_checks(items: Sequence[Mapping[str, Any]], date_keys: Sequence[str] = ("date",)) -> List[str]:
+def observation_checks(
+    items: Sequence[Mapping[str, Any]],
+    date_keys: Sequence[str] = ("date", "price_collected_at", "date_updated"),
+) -> List[str]:
     """Warnings about missing provenance of market observations."""
 
     checks = []
