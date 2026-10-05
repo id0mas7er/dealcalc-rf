@@ -15,6 +15,19 @@ def test_parse_number_supports_russian_price_format():
     assert parse_number("54,5", "area_sqm") == 54.5
 
 
+def test_normalize_listing_keeps_price_note():
+    result = normalize_listing(
+        {"Цена": "126 000 ₽", "Примечание к цене": "цена «от»"},
+        source="cian",
+    )
+    assert result["price_note"] == "цена «от»"
+    result = normalize_listing(
+        {"price": "126 000", "price_note": "цена «от»"},
+        source="cian",
+    )
+    assert result["price_note"] == "цена «от»"
+
+
 def test_normalize_listing_maps_common_russian_fields():
     result = normalize_listing(
         {
@@ -51,6 +64,7 @@ def test_normalize_listing_maps_common_russian_fields():
         "condition": "",
         "conditions": "",
         "reliability": "",
+        "price_note": "",
         "listing_id_basis": "listing_id",
         "brand": "",
         "model": "",
