@@ -224,7 +224,7 @@ def _city_guardrails(result: Mapping[str, Any]) -> List[str]:
         return []
     listed = "; ".join(f"{place} — {indexes}" for place, indexes in places.items())
     return [
-        f"Аналоги из разных городов ({listed}): обоснуйте сопоставимость местоположения или "
+        f"Аналоги из разных мест — город или регион ({listed}): обоснуйте сопоставимость местоположения или "
         "введите корректировку на местоположение."
     ]
 

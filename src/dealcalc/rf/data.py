@@ -353,7 +353,16 @@ def normalize_listing(
     for field in _TYPE_TEXT_FIELDS.get(listing_kind, ()):
         values[field] = _text(_lookup(row, field))
     for field in _TYPE_NUMBER_FIELDS.get(listing_kind, ()):
-        values[field] = parse_number(_lookup(row, field), field)
+        raw = _lookup(row, field)
+        try:
+            values[field] = parse_number(raw, field)
+        except ValueError:
+            # Наработка машины — описательное поле (ревью Codex 0.14.0); ЧОД, стоимость
+            # и показатель компании нужны для расчёта и остаются обязательными.
+            if field != "operating_hours":
+                raise
+            values[field] = None
+            number_warnings.append(f"{field}: значение {_text(raw)!r} не распознано — не использовано")
     if listing_kind == "rent":
         _annual_rent(row, values, rent_period)
     if listing_kind == "business":

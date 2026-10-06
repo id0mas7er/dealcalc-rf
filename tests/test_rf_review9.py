@@ -98,7 +98,7 @@ def test_three_years_is_not_old():
 
 def test_different_cities_are_a_reminder():
     result = rf.comparative_approach(50, _analogs(city=["Москва", "Москва", "Химки"]), context=CONTEXT)
-    assert any("разных городов" in text and "Химки" in text for text in result["guardrails"])
+    assert any("разных мест" in text and "Химки" in text for text in result["guardrails"])
 
 
 def test_unknown_context_field_lists_the_allowed_ones():
@@ -126,3 +126,16 @@ def test_rejected_vehicles_are_named_with_reasons():
     assert "марк" in reasons[2] and "модел" in reasons[3]
     assert "год" in reasons[4] and "пробег" in reasons[5]
     assert result["rejected_count"] == 4
+
+
+def test_unreadable_operating_hours_is_a_warning():
+    # Ревью Codex 0.14.0: наработка машины — необязательное поле.
+    listing = rf.normalize_listing({"price": 1_000_000, "name": "Станок", "наработка": "нет данных"}, "t", "machinery")
+    assert listing["operating_hours"] is None
+    assert any("operating_hours" in warning for warning in listing["import_warnings"])
+
+
+def test_manual_weight_stays_strict():
+    # Вес — суждение оценщика: молча заменять его нельзя.
+    with pytest.raises(ValueError, match="weight"):
+        rf.normalize_listing({"price": 1_000_000, "area": 40, "weight": "примерно 0,5"}, "t")
