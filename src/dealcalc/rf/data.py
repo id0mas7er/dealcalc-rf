@@ -42,6 +42,12 @@ _ALIASES = {
         "дата объявления",
         "дата размещения",
         "размещено",
+        # Ревью 9 (решение оценщика 06.10.2026): «Дата» — дата размещения;
+        # таблицы сделок — «Дата сделки» / «Дата продажи».
+        "дата",
+        "дата сделки",
+        "дата продажи",
+        "дата предложения",
     ),
     "date_updated": ("date_updated", "дата обновления", "обновлено"),
     "price_collected_at": ("price_collected_at", "дата цены", "цена на дату", "цена снята"),
@@ -148,6 +154,8 @@ def _lookup(row: Mapping[str, Any], field: str) -> Any:
     return None
 
 
+# Floor of total floors in one cell: "3/9", "3 / 9".
+_FLOOR_OF = re.compile(r"^\s*(-?\d+)\s*/\s*(\d+)\s*$")
 # A number, an optional multiplier and an optional unit: "5 млн руб.", "45 м2".
 _NUMBER_TEXT = re.compile(
     r"^(?P<number>[-+]?[0-9][0-9 .,]*?)\s*"
@@ -320,8 +328,24 @@ def normalize_listing(
     }
     for field in _TEXT_FIELDS:
         values[field] = _text(_lookup(row, field))
+    # Optional numbers that cannot be read become warnings, not errors: one
+    # cell must not stop the whole file (ревью 9). The price stays required.
+    number_warnings: List[str] = []
+    floor_of = _FLOOR_OF.match(_text(_lookup(row, "floor")))
     for field in _NUMBER_FIELDS:
-        values[field] = parse_number(_lookup(row, field), field)
+        if field == "floor" and floor_of:
+            values["floor"] = float(floor_of.group(1))
+            continue
+        raw = _lookup(row, field)
+        try:
+            values[field] = parse_number(raw, field)
+        except ValueError:
+            if field == "price_rub":
+                raise
+            values[field] = None
+            number_warnings.append(f"{field}: значение {_text(raw)!r} не распознано — не использовано")
+    if floor_of and values["total_floors"] is None:
+        values["total_floors"] = float(floor_of.group(2))
     for field in ("adjustment_pct", "weight"):
         number = parse_number(_lookup(row, field), field)
         if number is not None:
@@ -357,6 +381,7 @@ def normalize_listing(
     values["vat"], vat_warning = _vat(_lookup(row, "vat"))
     if vat_warning:
         warnings.append(vat_warning)
+    warnings += [item for item in number_warnings if item not in warnings]
     if warnings:
         values["import_warnings"] = warnings
     adjustments = _parse_adjustments(_lookup(row, "adjustments"))
@@ -560,25 +585,64 @@ def load_listings(
     with its line (CSV, JSONL) or item (JSON) number in the error.
     """
 
-    input_path = Path(path)
-    if not input_path.is_file():
-        raise FileNotFoundError(str(input_path))
-    suffix = input_path.suffix.lower()
-    if suffix == ".csv":
-        rows = _csv_rows(input_path)
-    elif suffix == ".json":
-        rows = _json_rows(input_path)
-    elif suffix == ".jsonl":
-        rows = _jsonl_rows(input_path)
-    elif suffix in (".xlsx", ".xlsm"):
-        rows = _xlsx_rows(input_path, sheet)
-    else:
-        raise ValueError("supported input formats are .csv, .json, .jsonl and .xlsx")
-
     normalized = []
-    for label, row in rows:
+    for label, row in _input_rows(path, sheet):
         try:
             normalized.append(normalize_listing(row, source, listing_type, collected_at, rent_period))
         except ValueError as exc:
             raise ValueError(f"{label}: {exc}") from exc
     return deduplicate_listings(normalized)
+
+
+def read_listings(
+    path: str | Path,
+    source: str,
+    listing_type: str = "property",
+    collected_at: Optional[str] = None,
+    sheet: Optional[str] = None,
+    rent_period: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Like :func:`load_listings`, but a bad row does not stop the file.
+
+    Returns ``listings``, ``count``, ``skipped`` (rows that could not be
+    read: ``row`` and ``reason``) and ``removed_duplicates`` (``row``,
+    ``listing_id`` and the row it duplicates) — nothing is dropped
+    silently (ревью 9). Raises only when no row could be read.
+    """
+
+    listings: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, str]] = []
+    removed: List[Dict[str, Any]] = []
+    seen: Dict[Tuple[Any, Any], str] = {}
+    for label, row in _input_rows(path, sheet):
+        try:
+            listing = normalize_listing(row, source, listing_type, collected_at, rent_period)
+        except ValueError as exc:
+            skipped.append({"row": label, "reason": str(exc)})
+            continue
+        key = (listing.get("source"), listing.get("listing_id"))
+        if key in seen:
+            removed.append({"row": label, "listing_id": listing.get("listing_id"), "duplicate_of": seen[key]})
+            continue
+        seen[key] = label
+        listings.append(listing)
+    if not listings and skipped:
+        reasons = "; ".join(f"{item['row']}: {item['reason']}" for item in skipped[:5])
+        raise ValueError(f"no row could be read ({reasons})")
+    return {"listings": listings, "count": len(listings), "skipped": skipped, "removed_duplicates": removed}
+
+
+def _input_rows(path: str | Path, sheet: Optional[str]) -> Iterable[Tuple[str, Any]]:
+    input_path = Path(path)
+    if not input_path.is_file():
+        raise FileNotFoundError(str(input_path))
+    suffix = input_path.suffix.lower()
+    if suffix == ".csv":
+        return _csv_rows(input_path)
+    if suffix == ".json":
+        return _json_rows(input_path)
+    if suffix == ".jsonl":
+        return _jsonl_rows(input_path)
+    if suffix in (".xlsx", ".xlsm"):
+        return _xlsx_rows(input_path, sheet)
+    raise ValueError("supported input formats are .csv, .json, .jsonl and .xlsx")

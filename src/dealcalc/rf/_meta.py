@@ -58,9 +58,10 @@ def assignment_context(context: Any) -> Dict[str, Any]:
         context = {}
     if not isinstance(context, Mapping):
         raise ValueError("context must be an object")
-    unknown = set(context) - {"valuation_date", "value_type", "vat", "vat_rate_pct", "assignment_id"}
+    allowed = ("valuation_date", "value_type", "vat", "vat_rate_pct", "assignment_id")
+    unknown = set(context) - set(allowed)
     if unknown:
-        raise ValueError(f"context has unknown fields: {sorted(unknown)}")
+        raise ValueError(f"context has unknown fields: {sorted(unknown)}; allowed: {', '.join(allowed)}")
 
     valuation_date = context.get("valuation_date")
     if valuation_date not in (None, ""):
@@ -180,6 +181,51 @@ def _later_price_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -
     return [
         f"Цены аналогов {later} датированы позже даты оценки: обоснуйте, что они отражают "
         "состояние рынка на дату оценки, скорректируйте на дату или исключите (ФСО III, п. 12)."
+    ]
+
+
+# An analog whose price is older than this on the valuation date needs a
+# reminder (решение оценщика 06.10.2026, ревью 9).
+STALE_PRICE_YEARS = 5
+
+
+def _stale_price_guardrails(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[str]:
+    """Prices much older than the valuation date (the other side of ФСО III, п. 12)."""
+
+    if not context.get("valuation_date"):
+        return []
+    valuation = date.fromisoformat(context["valuation_date"])
+    try:
+        limit = valuation.replace(year=valuation.year - STALE_PRICE_YEARS)
+    except ValueError:  # 29 февраля
+        limit = valuation.replace(year=valuation.year - STALE_PRICE_YEARS, day=28)
+    old = []
+    for item in _observations(result):
+        price_date = _parse_date(item.get("price_collected_at") or item.get("date") or "")
+        if price_date is not None and price_date < limit:
+            old.append(item.get("index"))
+    if not old:
+        return []
+    return [
+        f"Цены аналогов {old} старше {STALE_PRICE_YEARS} лет на дату оценки: нужна корректировка на дату "
+        "(индекс цен, шаг ratio) или обоснование, почему они отражают рынок на дату оценки (ФСО III, п. 12)."
+    ]
+
+
+def _city_guardrails(result: Mapping[str, Any]) -> List[str]:
+    """Analogs from different cities: location is the first price factor."""
+
+    places: Dict[str, List[Any]] = {}
+    for item in _observations(result):
+        place = str(item.get("city") or item.get("region") or "").strip()
+        if place:
+            places.setdefault(place, []).append(item.get("index"))
+    if len(places) < 2:
+        return []
+    listed = "; ".join(f"{place} — {indexes}" for place, indexes in places.items())
+    return [
+        f"Аналоги из разных городов ({listed}): обоснуйте сопоставимость местоположения или "
+        "введите корректировку на местоположение."
     ]
 
 
@@ -556,6 +602,7 @@ def method_card(
             conditions = list(result.pop("conditions", []))
             guardrails += offer_guardrails(result) + identifier_guardrails(result)
             guardrails += _weighting_guardrails(result)
+            guardrails += _stale_price_guardrails(assignment, result) + _city_guardrails(result)
             if context_reminder:
                 guardrails += _context_guardrails(assignment)
             if income_model:
@@ -592,6 +639,9 @@ def method_card(
 
 
 OBSERVATION_FIELDS = (
+    # Characteristics of the analog: the table of analogs of the report needs
+    # what the adjustments were applied to (ревью 9).
+    "title", "city", "region", "rooms", "floor", "total_floors", "year", "condition",
     "source", "date", "date_updated", "price_collected_at", "date_check", "url", "price_type",
     "conditions", "reliability", "price_note", "import_warnings", "listing_id_basis", "listing_id",
     "address", "vat",

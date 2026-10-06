@@ -16,7 +16,7 @@ from .real_estate import (
     net_operating_income,
     reconcile_approaches,
 )
-from .data import deduplicate_listings, load_listings, normalize_listing
+from .data import deduplicate_listings, load_listings, normalize_listing, read_listings
 from .assignment import check_assignment
 from .report import check_report
 from .business import (
@@ -94,6 +94,7 @@ __all__ = [
     "reconcile_approaches",
     "deduplicate_listings",
     "load_listings",
+    "read_listings",
     "normalize_listing",
     "braking_coefficient",
     "new_equivalent_price",

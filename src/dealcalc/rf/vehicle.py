@@ -253,7 +253,8 @@ def vehicle_comparative_approach(
     matched: List[Dict[str, Any]] = []
     weighted_items = []
     adjusted_all = []
-    rejected = 0
+    # Analogs left out by the filters, with the reason (ревью 9: not a bare count).
+    rejected: List[Dict[str, Any]] = []
     # Analogs a set limit could not be applied to for lack of data.
     no_year: List[int] = []
     no_mileage: List[int] = []
@@ -266,10 +267,14 @@ def vehicle_comparative_approach(
         comp_brand = _brand_keys(comparable.get("brand"), synonym_index)
         comp_model = _model_tokens(comparable.get("model"), model_replacements)
         if subject_brand and not subject_brand & comp_brand:
-            rejected += 1
+            brand_text = str(comparable.get("brand") or "").strip()
+            reason = f"другая марка: {brand_text}" if brand_text else "нет марки — сопоставимость не подтвердить"
+            rejected.append({"index": index, "reason": reason})
             continue
         if subject_model and not _models_match(subject_model, comp_model, match):
-            rejected += 1
+            model_text = str(comparable.get("model") or "").strip()
+            reason = f"другая модель: {model_text}" if model_text else "нет модели — сопоставимость не подтвердить"
+            rejected.append({"index": index, "reason": reason})
             continue
 
         comp_year = _number(
@@ -290,7 +295,7 @@ def vehicle_comparative_approach(
             and comp_year is not None
             and abs(subject_year - comp_year) > max_year_diff
         ):
-            rejected += 1
+            rejected.append({"index": index, "reason": f"год выпуска {comp_year:g}: отличие больше {max_year_diff:g}"})
             continue
         if (
             max_mileage_diff is not None
@@ -298,7 +303,7 @@ def vehicle_comparative_approach(
             and comp_mileage is not None
             and abs(subject_mileage - comp_mileage) > max_mileage_diff
         ):
-            rejected += 1
+            rejected.append({"index": index, "reason": f"пробег {comp_mileage:g} км: отличие больше {max_mileage_diff:g} км"})
             continue
 
         prefix = f"comparables[{index - 1}]"
@@ -324,7 +329,8 @@ def vehicle_comparative_approach(
         matched.append(item)
 
     if not matched:
-        raise ValueError("no comparable vehicles matched the subject filters")
+        reasons = "; ".join(f"{item['index']}: {item['reason']}" for item in rejected)
+        raise ValueError(f"no comparable vehicles matched the subject filters ({reasons})")
     sample = sample_weights(adjusted_all, weighting)
     if sample is not None:
         weighted_items = [(price, weight) for (price, _), weight in zip(weighted_items, sample)]
@@ -367,7 +373,8 @@ def vehicle_comparative_approach(
         "currency": currency_code,
         "subject_price_rub": None if subject_price is None else money(subject_price),
         "sample_size": len(matched),
-        "rejected_count": rejected,
+        "rejected_count": len(rejected),
+        "rejected": rejected,
         "weighting": weighting,
         "weighting_formula": WEIGHTING_FORMULAS[weighting],
         "weighted_median_price": money(median),

@@ -114,10 +114,12 @@ def test_load_listings_json_reports_item_number(tmp_path):
         load_listings(str(path), source="avito")
 
 
-def test_plain_date_column_is_not_the_price_date():
+def test_plain_date_column_is_the_publication_date():
+    # Решение оценщика 06.10.2026 (ревью 9) заменило решение 0.3.1: «Дата» —
+    # дата размещения, а не дата сбора.
     listing = normalize_listing({"price": 1_000, "Дата": "2026-09-01"}, source="avito")
 
-    assert listing["date"] == ""
+    assert listing["date"] == "2026-09-01"
 
 
 # 4. VAT treatment in the context against the VAT rate of the calculation.
