@@ -40,6 +40,7 @@ from ._meta import (
     observation_checks,
     observation_fields,
     variation_checks,
+    zero_weight_checks,
 )
 
 
@@ -205,8 +206,10 @@ def comparative_approach(
     weighted_unit_price = _round(
         sum(price * weight for price, weight in zip(raw_prices, scaled)) / sum(scaled)
     )
-    # Statistics of the sample come from unrounded prices, as the weighted mean does.
-    adjusted_prices = raw_prices
+    # Statistics of the sample come from unrounded prices, as the weighted mean
+    # does, and only from analogs that carry weight (ревью 30, M4).
+    adjusted_prices = [price for price, weight in zip(raw_prices, raw_weights) if weight > 0]
+    zero_weight = [item["index"] for item, weight in zip(normalized, raw_weights) if weight == 0]
     sample_variation = variation(adjusted_prices)
     return {
         "approach": "comparative",
@@ -227,7 +230,8 @@ def comparative_approach(
         "variation": sample_variation,
         "comparables": normalized,
         "checks": observation_checks(normalized)
-        + variation_checks(sample_variation, len(normalized)),
+        + variation_checks(sample_variation, len(adjusted_prices))
+        + zero_weight_checks(zero_weight),
     }
 
 

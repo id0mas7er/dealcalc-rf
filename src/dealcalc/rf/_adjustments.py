@@ -409,7 +409,7 @@ def apply_adjustments(
         "adjustments_count": _effective_count(applied),
         "net_adjustment_pct": _share_pct(price - base_price, base_price),
         "gross_adjustment_pct": _share_pct(gross_change, base_price),
-        # Unrounded, for weights computed over the whole sample.
+        # Unrounded, for the inverse_gross weight.
         "gross_adjustment_raw_pct": None if base_price == 0 else gross_change / base_price * 100,
     }
 
@@ -513,7 +513,7 @@ def analog_weight(
     if weighting in SAMPLE_WEIGHTINGS:
         return 1.0  # replaced by sample_weights once the sample is adjusted
     if weighting == "inverse_gross":
-        return 1 / (1 + (adjusted["gross_adjustment_pct"] or 0) / 100)
+        return 1 / (1 + (adjusted["gross_adjustment_raw_pct"] or 0) / 100)
     return 1 / (1 + adjusted["adjustments_count"])
 
 

@@ -389,7 +389,11 @@ def external_obsolescence_lost_income(
         "present_value_loss": money(total),
         "cost_value": None if base is None else money(base),
         "external_obsolescence_pct": None if base is None else money(total / base * 100),
-        "checks": _obsolescence_checks(total),
+        "checks": _obsolescence_checks(total) + (
+            ["Потери больше затратной стоимости (обесценение больше 100 %): проверьте потоки, ставку и базу."]
+            if base is not None and total > base
+            else []
+        ),
     }
 
 
@@ -415,7 +419,9 @@ def fund_unit_value(
     ``distributions`` are expected payouts per unit for years 1..n, net of
     management fees, fund expenses and owner taxes; the final compensation
     at the end of the trust agreement (year ``final_period``, default n) is
-    reduced by termination costs. No separate terminal value is added.
+    reduced by termination costs. ``final_period`` may be fractional when the
+    agreement ends inside a year (4.5 — the middle of year 5). No separate
+    terminal value is added.
     """
 
     if isinstance(distributions, (str, bytes)):

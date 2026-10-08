@@ -69,6 +69,7 @@ def npv(cash_flows: Sequence[float], discount_rate_pct: float) -> Dict[str, Any]
         "discount_rate_pct": money(rate_pct),
         "npv": money(total),
         "periods": periods,
+        "checks": [f"Ставка дисконтирования {money(rate_pct)} % не больше нуля: обоснуйте её или проверьте ввод."] if rate_pct <= 0 else [],
     }
 
 
@@ -79,7 +80,8 @@ def irr(cash_flows: Sequence[float]) -> Dict[str, Any]:
 
     ``cash_flows[0]`` is the flow at period 0. The flows must contain both
     negative and positive values. With several sign changes more than one
-    IRR may exist; the one found by ``numpy_financial.irr`` is returned.
+    IRR may exist; ``numpy_financial.irr`` returns the root closest to zero,
+    which may be negative while a positive one exists.
     """
 
     flows = _flows(cash_flows)
@@ -97,7 +99,8 @@ def irr(cash_flows: Sequence[float]) -> Dict[str, Any]:
         "irr_pct": money(result * 100),
         "sign_changes": sign_changes,
         "checks": [
-            f"Знак потоков меняется {sign_changes} раз(а): возможны несколько значений IRR."
+            f"Знак потоков меняется {sign_changes} раз(а): возможны несколько значений IRR; "
+            "выбран корень, ближайший к нулю — проверьте профиль NPV."
         ]
         if sign_changes > 1
         else [],
@@ -139,6 +142,14 @@ def gordon_terminal_value(
     growth = _rate("growth_rate_pct", growth_rate_pct)
     if rate <= growth:
         raise ValueError("discount_rate_pct must be greater than growth_rate_pct (r > g)")
+    checks = []
+    if flow <= 0:
+        checks.append(
+            "Поток первого постпрогнозного года не больше нуля: модель Гордона даёт "
+            "неположительную стоимость — проверьте прогноз."
+        )
+    if rate <= 0:
+        checks.append(f"Ставка дисконтирования {money(rate)} % не больше нуля: обоснуйте её или проверьте ввод.")
     return {
         "cash_flow_next": money(flow),
         "discount_rate_pct": money(rate),
@@ -149,6 +160,7 @@ def gordon_terminal_value(
             "длительный или неограниченный срок использования",
             "обоснованные ставка r и темп роста g, r > g",
         ],
+        "checks": checks,
     }
 
 
@@ -293,6 +305,8 @@ def discount_rate_build_up(
     no_source = [item["name"] for item in items if "source" not in item]
     if no_source:
         checks.append(f"Не указаны источники премий: {no_source}.")
+    if total <= 0:
+        checks.append(f"Итоговая ставка {money(total)} % не больше нуля: проверьте знаки премий.")
     return {
         "risk_free_rate_pct": money(free),
         "risk_free_source": risk_free_source or None,
@@ -346,7 +360,13 @@ def capital_recovery_rate(
 
     def sinking_fund(y: float) -> float:
         # expm1/log1p keep (1 + y)^n − 1 accurate for rates close to zero.
-        return 1 / life if y == 0 else y / math.expm1(life * math.log1p(y))
+        if y == 0:
+            return 1 / life
+        try:
+            return y / math.expm1(life * math.log1p(y))
+        except OverflowError:
+            # (1 + y)^n beyond the float range: the factor is 0 to any precision.
+            return 0.0
 
     if method == "ring":
         recovery = 1 / life

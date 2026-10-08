@@ -6,6 +6,7 @@ import json
 import math
 import re
 from collections.abc import Mapping, Sequence
+from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,7 +28,17 @@ from ._meta import (
     observation_checks,
     observation_fields,
     variation_checks,
+    zero_weight_checks,
 )
+
+# The first production car (Benz, 1886): an earlier year is a data error.
+_FIRST_CAR_YEAR = 1886
+
+
+def _year_error(year: Optional[float]) -> Optional[str]:
+    if year is None or _FIRST_CAR_YEAR <= year <= date.today().year + 1:
+        return None
+    return f"год выпуска {year:g}: недостоверный"
 
 
 def _number(name: str, value: Any, *, allow_none: bool = False) -> Optional[float]:
@@ -75,7 +86,9 @@ def _latin(token: str) -> str:
 def _merge_groups(
     base: Mapping[str, Sequence[str]], *extras: Optional[Mapping[str, Sequence[str]]]
 ) -> Dict[str, List[str]]:
-    groups = {key: list(values) for key, values in base.items()}
+    groups: Dict[str, List[str]] = {}
+    for key, values in base.items():
+        groups.setdefault(str(key).casefold(), []).extend(values)
     for extra in extras:
         for key, values in (extra or {}).items():
             groups.setdefault(str(key).casefold(), []).extend(values)
@@ -120,6 +133,9 @@ def _brand_keys(value: Any, index: Mapping[str, str]) -> set:
         return set()
     keys = {index[text]} if text in index else set()
     for token in _tokens(text):
+        if token not in index and _latin(token) not in index:
+            # A sub-model glued to the brand: "ВАЗ-2107" -> "ваз".
+            token = re.sub(r"-[0-9]+$", "", token) or token
         keys.add(index.get(token) or index.get(_latin(token)) or _latin(token))
     return keys
 
@@ -195,7 +211,12 @@ def vehicle_comparative_approach(
     :func:`dealcalc.rf.data.normalize_listing`. Comparables are matched by
     brand/model when those fields are present, and optionally limited by year
     and mileage differences set by the appraiser (no default limits; an
-    unset limit is reported in ``checks``). ``adjustments`` and ``weight``
+    unset limit is reported in ``checks``). The limits are inclusive: a
+    difference equal to the limit is kept. A comparable without a price, with
+    a negative mileage or an implausible year is rejected with the reason.
+    With ``match="contains"`` the subject's model words may be a part of the
+    comparable's ("Vesta" — "Vesta SW Cross"); such comparables are listed in
+    the guardrails. ``adjustments`` and ``weight``
     are optional analyst-supplied fields on each comparable; the
     provenance of the observation (``source``, ``date``, ``url``,
     ``price_type``, ``conditions``, ``reliability``) is kept.
@@ -217,7 +238,8 @@ def vehicle_comparative_approach(
     ``vehicle_synonyms.json`` and transliteration. ``synonyms``
     (``{canonical name: [spellings]}``, applied to brands and models) and
     ``synonyms_file`` (a local JSON ``{"brands": {...}, "models": {...}}``)
-    extend it.
+    extend it. For one spelling of two names the later source wins: the
+    package dictionary, then ``synonyms_file``, then ``synonyms``.
     """
 
     if not isinstance(subject, Mapping):
@@ -233,6 +255,10 @@ def vehicle_comparative_approach(
     subject_mileage = _number(
         "subject.mileage_km", subject.get("mileage_km"), allow_none=True
     )
+    if subject_mileage is not None and subject_mileage < 0:
+        raise ValueError("subject.mileage_km must be non-negative")
+    if _year_error(subject_year):
+        raise ValueError(f"subject.year {subject_year:g} is not a plausible year of manufacture")
     if match not in ("exact", "contains"):
         raise ValueError("match must be 'exact' or 'contains'")
     if synonyms is not None and not isinstance(synonyms, Mapping):
@@ -258,12 +284,11 @@ def vehicle_comparative_approach(
     # Analogs a set limit could not be applied to for lack of data.
     no_year: List[int] = []
     no_mileage: List[int] = []
+    # Comparables matched by a part of the model name (match="contains").
+    widened: List[int] = []
     for index, comparable in enumerate(comparables, start=1):
         if not isinstance(comparable, Mapping):
             raise ValueError(f"comparables[{index - 1}] must be an object")
-        price = _number(f"comparables[{index - 1}].price_rub", comparable.get("price_rub"))
-        if price <= 0:
-            raise ValueError(f"comparables[{index - 1}].price_rub must be greater than 0")
         comp_brand = _brand_keys(comparable.get("brand"), synonym_index)
         comp_model = _model_tokens(comparable.get("model"), model_replacements)
         if subject_brand and not subject_brand & comp_brand:
@@ -276,6 +301,13 @@ def vehicle_comparative_approach(
             reason = f"другая модель: {model_text}" if model_text else "нет модели — сопоставимость не подтвердить"
             rejected.append({"index": index, "reason": reason})
             continue
+        # The price is checked after the match: a foreign listing with a bad
+        # price is rejected with the reason, not a stop (ревью 30, M2).
+        price = _number(f"comparables[{index - 1}].price_rub", comparable.get("price_rub"), allow_none=True)
+        if price is None or price <= 0:
+            reason = "нет цены" if price is None else f"цена {price:g}: должна быть больше 0"
+            rejected.append({"index": index, "reason": reason})
+            continue
 
         comp_year = _number(
             f"comparables[{index - 1}].year", comparable.get("year"), allow_none=True
@@ -285,6 +317,12 @@ def vehicle_comparative_approach(
             comparable.get("mileage_km"),
             allow_none=True,
         )
+        if comp_mileage is not None and comp_mileage < 0:
+            rejected.append({"index": index, "reason": f"пробег {comp_mileage:g} км: отрицательный"})
+            continue
+        if _year_error(comp_year):
+            rejected.append({"index": index, "reason": _year_error(comp_year)})
+            continue
         if max_year_diff is not None and subject_year is not None and comp_year is None:
             no_year.append(index)
         if max_mileage_diff is not None and subject_mileage is not None and comp_mileage is None:
@@ -327,6 +365,8 @@ def vehicle_comparative_approach(
                 item[field] = json_value(comparable[field])
         item.update(observation_fields(comparable, prefix))
         matched.append(item)
+        if match == "contains" and set(comp_model) != set(subject_model):
+            widened.append(index)
 
     if not matched:
         reasons = "; ".join(f"{item['index']}: {item['reason']}" for item in rejected)
@@ -344,12 +384,22 @@ def vehicle_comparative_approach(
 
     weight_sum = sum(weight for _, weight in weighted_items)
     weighted_mean = sum(value * weight for value, weight in weighted_items) / weight_sum
-    # Statistics of the sample come from unrounded prices, as the mean does.
-    adjusted_prices = [price for price, _ in weighted_items]
+    # Statistics of the sample come from unrounded prices, as the mean does,
+    # and only from analogs that carry weight (ревью 30, M4).
+    adjusted_prices = [price for price, weight in weighted_items if weight > 0]
     price_variation = variation(adjusted_prices)
     median = _weighted_median(weighted_items)
     checks = observation_checks(matched)
-    checks += variation_checks(price_variation, len(matched))
+    checks += variation_checks(price_variation, len(adjusted_prices))
+    checks += zero_weight_checks(
+        [item["index"] for item, (_, weight) in zip(matched, weighted_items) if weight == 0]
+    )
+    guardrails = []
+    if widened:
+        guardrails.append(
+            f"Аналоги {widened} подобраны по части названия модели (match=contains): "
+            "проверьте кузов, модификацию и комплектацию."
+        )
     matched_indices = {item["index"] for item in matched}
     for limit, subject_value, missing, label in (
         (max_year_diff, subject_year, no_year, "года выпуска"),
@@ -394,4 +444,5 @@ def vehicle_comparative_approach(
         },
         "comparables": matched,
         "checks": checks,
+        "guardrails": guardrails,
     }

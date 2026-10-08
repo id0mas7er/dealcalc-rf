@@ -95,7 +95,7 @@ def new_equivalent_price(price: float, total_depreciation_pct: float) -> Dict[st
         raise ValueError("total_depreciation_pct must be in [0, 100)")
     return {
         "price": money(analog_price),
-        "total_depreciation_pct": money(depreciation),
+        "total_depreciation_pct": depreciation,
         "new_equivalent_price": money(analog_price / (1 - depreciation / 100)),
     }
 
@@ -346,7 +346,7 @@ def residual_value(
     floor_applied = depreciation == 100 or depreciated < salvage
     return {
         "replacement_cost": money(cost),
-        "total_depreciation_pct": money(depreciation),
+        "total_depreciation_pct": depreciation,
         "depreciated_value": money(depreciated),
         "salvage_value": money(salvage),
         "salvage_floor_applied": floor_applied,

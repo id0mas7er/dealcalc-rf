@@ -162,6 +162,10 @@ def business_income_approach(
     equity = operating_value - obligations + nop_assets - nop_liabilities
 
     checks = []
+    if rate <= 0:
+        checks.append(f"Ставка дисконтирования {money(rate * 100)} % не больше нуля: обоснуйте её или проверьте ввод.")
+    if terminal < 0:
+        checks.append("Постпрогнозная стоимость отрицательна: проверьте прогноз и модель.")
     if equity < 0:
         checks.append("Стоимость собственного капитала отрицательна: проверьте прогноз и обязательства.")
     if chosen_basis == "invested_capital" and obligations_unknown:
@@ -417,6 +421,7 @@ def business_liquidation_value(
     if total < 0:
         checks.append("Чистые ликвидационные поступления отрицательны: проверьте долги и расходы.")
     return {
+        "value_kind": "ликвидационная стоимость",
         "approach": "liquidation",
         "currency": _currency(currency),
         "discount_rate_pct": money(rate * 100),
@@ -469,7 +474,7 @@ def actual_share_value(
         "value_kind": "действительная стоимость доли (ДСД)",
         "currency": _currency(currency),
         "share_pct": round(share, 4),
-        "paid_share_pct": money(paid),
+        "paid_share_pct": round(paid, 4),
         "legal_share_fraction": round(legal_fraction, 6),
         "accepted_assets": money(assets),
         "accepted_liabilities": money(liabilities),
@@ -536,7 +541,7 @@ def deferred_tax_effect(
             "Учитывайте эффект один раз: в прогнозе потоков или отдельной корректировкой.",
             "Без обоснованной будущей налогооблагаемой прибыли ОНА может не иметь экономической ценности.",
         ],
-        "checks": [],
+        "checks": [f"Ставка дисконтирования {money(rate * 100)} % не больше нуля: обоснуйте её или проверьте ввод."] if rate <= 0 else [],
     }
 
 
@@ -565,9 +570,12 @@ def business_interest_value(
     ``value_basis`` names what ``value_100pct`` is: ``equity`` or
     ``invested_capital`` (EV). From EV the bridge to equity is explicit:
     ``equity = EV − net_debt``, and ``net_debt`` is then required.
+    ``net_debt`` is interest-bearing debt less cash (negative when cash
+    exceeds debt).
     """
 
     total = _non_negative("value_100pct", value_100pct)
+    debt = None if net_debt is None else _number("net_debt", net_debt)
     checks = []
     if value_basis is None:
         checks.append(
@@ -580,7 +588,7 @@ def business_interest_value(
     elif value_basis == "invested_capital":
         if net_debt is None:
             raise ValueError("net_debt is required to bridge from invested capital (EV) to equity")
-        equity_value = total - _number("net_debt", net_debt)
+        equity_value = total - debt
         if equity_value < 0:
             raise ValueError("equity value after net_debt is negative")
     else:
@@ -600,7 +608,7 @@ def business_interest_value(
         "currency": _currency(currency),
         "value_100pct": money(total),
         "value_basis": value_basis,
-        "net_debt": None if net_debt is None else money(_number("net_debt", net_debt)),
+        "net_debt": None if debt is None else money(debt),
         "equity_value_100pct": money(equity_value),
         "share_pct": round(share, 4),
         "pro_rata_value": money(pro_rata),

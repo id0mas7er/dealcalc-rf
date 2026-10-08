@@ -52,6 +52,14 @@ _SECTION_TYPES = [
     ("п. 7 (10)", "object", "объект"),
     ("п. 7 (13)", "approaches", "объект"),
     ("п. 8", "sources", "список"),
+    ("п. 7 (8)", "engaged_specialists", "список"),
+    ("п. 7 (2)", "basis", "текст"),
+    ("п. 7 (7)", "independence", "текст"),
+    ("п. 7 (9)", "standards", "текст"),
+    ("п. 7 (11)", "assumptions", "текст"),
+    ("п. 7 (12)", "market_analysis", "текст"),
+    ("п. 7 (14)", "limits_of_use", "текст"),
+    ("п. 7 (15)", "documents", "текст"),
 ]
 _LEGAL_FIELDS = {"name": "наименование", "ogrn": "ОГРН или иной регистрационный номер", "address": "место нахождения"}
 _SIGNING = {
@@ -108,6 +116,15 @@ def _present(value: Any) -> bool:
     if isinstance(value, (list, tuple, dict)):
         return bool(value)
     return True
+
+
+def _same(key: str, actual: Any, expected: Any) -> bool:
+    """«рыночная» and «рыночная стоимость» are one value type, as in the context."""
+
+    first, second = str(actual).strip().lower(), str(expected).strip().lower()
+    if key == "value_type":
+        return first.startswith(second) or second.startswith(first)
+    return first == second
 
 
 def _missing_fields(data: Any, fields: Mapping[str, str], prefix: str) -> List[str]:
@@ -176,7 +193,12 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
     for point, field, kind in _SECTION_TYPES:
         value = report.get(field)
         is_list = isinstance(value, Sequence) and not isinstance(value, (str, bytes))
-        if _present(value) and not (is_list if kind == "список" else isinstance(value, Mapping)):
+        if kind == "текст":
+            # Text, a list of items or an object with subsections — not a number or a flag.
+            valid = isinstance(value, (str, Mapping)) or is_list
+        else:
+            valid = is_list if kind == "список" else isinstance(value, Mapping)
+        if _present(value) and not valid:
             missing.append(f"{point} {field} — нужен {kind}, а не {type(value).__name__}")
 
     raw_date = report.get("report_date")
@@ -188,9 +210,13 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
 
     assignment = report.get("assignment")
     if isinstance(assignment, Mapping) and assignment:
-        assignment_result = check_assignment(assignment)
-        missing += [f"п. 7 (3) задание: {item}" for item in assignment_result["missing_critical"]]
-        guardrails += [f"Задание: {item}" for item in assignment_result["checks"]]
+        try:
+            assignment_result = check_assignment(assignment)
+        except ValueError as exc:
+            missing.append(f"п. 7 (3) задание: {exc}")
+        else:
+            missing += [f"п. 7 (3) задание: {item}" for item in assignment_result["missing_critical"]]
+            guardrails += [f"Задание: {item}" for item in assignment_result["checks"]]
 
     appraisers = report.get("appraisers")
     if _present(appraisers):
@@ -248,7 +274,8 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
     context = assignment if isinstance(assignment, Mapping) else {}
     for number, calculation in enumerate(calculations, start=1):
         label = (calculation.get("method_card") or {}).get("id", f"расчёт {number}")
-        if calculation.get("status") not in (None, STATUS_DRAFT):
+        # Unresolved checks count whatever the status says (ревью 30, M9).
+        if calculation.get("status") not in (None, STATUS_DRAFT) or calculation.get("checks"):
             reasons = "; ".join(calculation.get("checks") or [])
             checks.append(f"{label}: статус «{calculation.get('status')}» — {reasons or 'проверьте результат'}.")
         calc_context = calculation.get("context") or {}
@@ -256,7 +283,7 @@ def check_report(report: Mapping[str, Any]) -> Dict[str, Any]:
             expected, actual = context.get(key), calc_context.get(key)
             if expected and actual is None:
                 checks.append(f"{label}: в расчёте не указан контекст ({name}).")
-            elif expected and actual and str(actual).strip().lower() != str(expected).strip().lower():
+            elif expected and actual and not _same(key, actual, expected):
                 checks.append(f"{label}: {name} в расчёте «{actual}», в задании «{expected}».")
         expected_id, actual_id = context.get("assignment_id"), calc_context.get("assignment_id")
         if _present(expected_id) and _present(actual_id) and str(actual_id).strip() != str(expected_id).strip():

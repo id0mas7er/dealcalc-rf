@@ -169,7 +169,7 @@ def test_assignment_warnings():
         }
     )
 
-    assert any("ФСО II" in check for check in result["checks"])
+    assert any("ФСО II" in item for item in result["missing_critical"])  # ревью 30, M10
     assert any("ГГГГ-ММ-ДД" in item for item in result["missing_critical"])
     assert result["can_proceed"] is False
     assert any("Осмотр не проводился" in check for check in result["checks"])
@@ -191,16 +191,12 @@ def test_every_result_has_uniform_keys():
     assert result["checks"] == []
 
 
-@pytest.mark.parametrize(
-    "call",
-    [
-        lambda: comparative_approach(10, [{"price": 0, "area_sqm": 1}, {"price": 100, "area_sqm": 1}]),
-        lambda: vehicle_comparative_approach({}, [{"price_rub": 0}, {"price_rub": 100}]),
-    ],
-)
-def test_zero_comparable_price_is_rejected(call):
+def test_zero_comparable_price_is_rejected():
     with pytest.raises(ValueError, match="greater than 0"):
-        call()
+        comparative_approach(10, [{"price": 0, "area_sqm": 1}, {"price": 100, "area_sqm": 1}])
+    # Автомобили: аналог с плохой ценой уходит в rejected с причиной (ревью 30, M2).
+    result = vehicle_comparative_approach({}, [{"price_rub": 0}, {"price_rub": 100}])
+    assert result["rejected"] == [{"index": 1, "reason": "цена 0: должна быть больше 0"}]
 
 
 def test_negative_incurable_depreciation_is_floored_and_flagged():

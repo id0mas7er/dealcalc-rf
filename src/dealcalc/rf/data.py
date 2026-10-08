@@ -162,6 +162,8 @@ _NUMBER_TEXT = re.compile(
     r"(?:(?P<multiplier>тыс|млн|млрд)\.?)?\s*"
     r"(?:руб(?:лей|ля|ль)?\.?|р\.|₽|rub|км|km|м2|м²|кв\.?\s*м\.?|sqm|л\.?\s*с\.?|hp|%)?$"
 )
+# One separator followed by exactly three digits: «12,345», «1.234».
+_ONE_GROUP = re.compile(r"^[-+]?[0-9]{1,3}[.,][0-9]{3}$")
 _MULTIPLIERS = {"тыс": Decimal(1_000), "млн": Decimal(1_000_000), "млрд": Decimal(1_000_000_000)}
 
 
@@ -344,6 +346,12 @@ def normalize_listing(
                 raise
             values[field] = None
             number_warnings.append(f"{field}: значение {_text(raw)!r} не распознано — не использовано")
+        if field == "price_rub" and _ONE_GROUP.match(_text(raw)):
+            # «12,345»: decimal comma in Russian data, thousands in US data (ревью 30, M8).
+            number_warnings.append(
+                f"price_rub: {_text(raw)!r} прочитано как {values[field]:g} (запятая или точка — "
+                "десятичный разделитель); если это разряд тысяч — исправьте в файле"
+            )
     if floor_of and values["total_floors"] is None:
         values["total_floors"] = float(floor_of.group(2))
     for field in ("adjustment_pct", "weight"):
@@ -523,8 +531,18 @@ def _csv_rows(path: Path) -> Iterable[Tuple[str, Mapping[str, Any]]]:
         reader = csv.DictReader(handle, delimiter=delimiter)
         if not reader.fieldnames:
             raise ValueError("CSV must contain a header row")
+        _check_header(reader.fieldnames)
         for row in reader:
             yield f"line {reader.line_num}", row
+
+
+def _check_header(header: Sequence[Any]) -> None:
+    """A repeated column name would silently overwrite the earlier column."""
+
+    names = [str(name).strip() for name in header if name is not None and str(name).strip()]
+    repeated = sorted({name for name in names if names.count(name) > 1})
+    if repeated:
+        raise ValueError(f"колонка {', '.join(repeated)} повторяется в шапке — оставьте одну")
 
 
 def _xlsx_rows(path: Path, sheet: Optional[str]) -> Iterable[Tuple[str, Mapping[str, Any]]]:
@@ -559,6 +577,7 @@ def _xlsx_rows(path: Path, sheet: Optional[str]) -> Iterable[Tuple[str, Mapping[
                 continue
             if header is None:
                 header = ["" if cell is None else str(cell).strip() for cell in cells]
+                _check_header(header)
                 continue
             row = {}
             for key, cell in zip(header, cells):

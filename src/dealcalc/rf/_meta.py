@@ -521,9 +521,11 @@ def _condition_review(
         confirmed = []
     if isinstance(confirmed, (str, bytes)) or not isinstance(confirmed, Sequence):
         raise ValueError("confirmed_conditions must be a list of condition ids")
-    unknown = set(confirmed) - set(required)
+    unknown = [item for item in confirmed if not isinstance(item, str) or item not in required]
     if unknown:
-        raise ValueError(f"confirmed_conditions has unknown ids {sorted(unknown)}; known: {sorted(required)}")
+        raise ValueError(
+            f"confirmed_conditions has unknown ids {sorted(map(str, unknown))}; known: {sorted(required)}"
+        )
     items = [{"id": key, "text": text, "confirmed": key in confirmed} for key, text in required.items()]
     missing = [f"{item['id']} — {item['text']}" for item in items if not item["confirmed"]]
     checks = (
@@ -759,6 +761,17 @@ def identifier_guardrails(result: Mapping[str, Any]) -> List[str]:
     return [
         f"Идентификатор аналогов {built} построен по характеристикам (нет номера "
         "объявления, ссылки, VIN или кадастрового номера): проверьте дубли вручную."
+    ]
+
+
+def zero_weight_checks(indices: Sequence[int]) -> List[str]:
+    """Analogs a sample rule gave a zero weight (ревью 30, M4)."""
+
+    if not indices:
+        return []
+    return [
+        f"Аналоги {list(indices)} получили вес 0 (на них все корректировки выборки): "
+        "на результат не влияют, разброс и вариация посчитаны без них."
     ]
 
 

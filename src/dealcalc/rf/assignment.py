@@ -182,9 +182,10 @@ def check_assignment(assignment: Mapping[str, Any]) -> Dict[str, Any]:
     checks: List[str] = []
     value_type = str(assignment.get("value_type") or "").strip().lower()
     if value_type and not any(value_type.startswith(name) for name in _VALUE_TYPES):
-        checks.append(
-            f"Вид стоимости «{assignment.get('value_type')}» не из ФСО II "
-            f"({', '.join(_VALUE_TYPES)}): проверьте задание."
+        # Как нераспознанная дата: расчёт с таким видом стоимости не начнётся (ревью 30, M10).
+        missing_critical.append(
+            f"value_type — вид стоимости «{assignment.get('value_type')}» не из ФСО II "
+            f"({', '.join(_VALUE_TYPES)})"
         )
     raw_date = assignment.get("valuation_date")
     if _present(raw_date):
