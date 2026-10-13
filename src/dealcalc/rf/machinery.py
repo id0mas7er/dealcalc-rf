@@ -709,16 +709,17 @@ def split_set_price(
          "price": money(total * base / base_total)}
         for name, base in bases.items()
     ]
-    # Округлённые доли могут не дать цену комплекта (100 на три → 99,99).
+    # Округлённые доли могут не дать цену комплекта (100 на три → 99,99):
+    # остаток относится на последнюю позицию, чтобы сумма совпала.
     difference = money(total - sum(item["price"] for item in items))
+    if difference:
+        items[-1]["price"] = money(items[-1]["price"] + difference)
+        items[-1]["rounding_adjustment"] = difference
     return {
         "set_price": money(total),
         "base_source": base_source,
         "items": items,
         "rounding_difference": difference,
-        "checks": [
-            f"Сумма округлённых цен отличается от цены комплекта на {difference}: отнесите разницу на позицию явно."
-        ] if difference else [],
         "guardrails": [] if base_source else [
             "Назовите источник базовых цен (base_source): договор, прайс-лист и его дату."
         ],
@@ -765,8 +766,8 @@ def _capped(value: float) -> tuple:
 
 @method_card(
     "VEHICLE_WEAR_RD37",
-    "ФСО №10; РД 37.009.015-98 (в редакции расчёта отчётов: износ по возрасту и перепробегу)",
-    "И = (И_2 × Д_ф + И_1 × (П_ф − П_с × Д_ф)) × А_3",
+    "ФСО №10; РД 37.009.015-98, п. 4.2.1, формула (2)",
+    "И = (И_1 × П_ф + И_2 × Д_ф) × А_2 × А_3 × А_4",
     FORMULA_METHODICAL,
     source_url="https://srosovet.ru/activities/npa/fso-10/",
     context_reminder=False,
@@ -775,33 +776,50 @@ def vehicle_wear_rd37(
     age_years: float,
     mileage_thousand_km: float,
     age_rate_pct: float,
-    overrun_rate_pct: float,
-    standard_mileage_thousand_per_year: float,
+    mileage_rate_pct: float,
+    climate_coef: float = 1,
+    ecology_coef: float = 1,
     region_coef: float = 1,
+    standard_mileage_thousand_per_year: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Physical wear of a vehicle by age and over-mileage: ``И_2`` — % per
-    year of age, ``И_1`` — % per 1000 km of mileage above the standard
-    ``П_с × Д_ф``, ``А_3`` — the coefficient of the region. The normatives
-    come from the document (the table by type of vehicle) — inputs of the
-    appraiser. The result is limited to [0; 100] %."""
+    """Physical wear of a vehicle by РД 37.009.015-98, formula (2):
+    ``(И_1 × П_ф + И_2 × Д_ф) × А_2 × А_3 × А_4`` — ``И_1`` % per 1000 km of the
+    actual mileage, ``И_2`` % per year of service, ``А_2`` climate, ``А_3``
+    ecology, ``А_4`` type of region (annex И of the document).
+
+    With ``standard_mileage_thousand_per_year`` the mileage term is
+    ``И_1 × (П_ф − П_с × Д_ф)`` — the over-mileage variant some reports use
+    (147/25-ю); it is not formula (2) and is flagged. The normatives are the
+    appraiser's inputs; the result is limited to [0; 100] %.
+    """
 
     age = _non_negative("age_years", age_years)
     mileage = _non_negative("mileage_thousand_km", mileage_thousand_km)
     by_age = _non_negative("age_rate_pct", age_rate_pct) * age
-    overrun = mileage - _non_negative("standard_mileage_thousand_per_year", standard_mileage_thousand_per_year) * age
-    by_mileage = _non_negative("overrun_rate_pct", overrun_rate_pct) * overrun
-    region = _positive("region_coef", region_coef)
-    raw = (by_age + by_mileage) * region
+    counted = mileage
+    guardrails = ["Нормативы И_1, И_2 и коэффициенты А_2–А_4 — по приложениям И, К документа для типа ТС и "
+                  "региона: укажите источник."]
+    if standard_mileage_thousand_per_year is not None:
+        counted = mileage - _non_negative("standard_mileage_thousand_per_year", standard_mileage_thousand_per_year) * age
+        guardrails.append(
+            "Вариант с перепробегом (П_ф − П_с × Д_ф) — не формула (2) РД 37.009.015-98, где учитывается весь "
+            "фактический пробег: обоснуйте его выбор."
+        )
+    by_mileage = _non_negative("mileage_rate_pct", mileage_rate_pct) * counted
+    coefficient = (_positive("climate_coef", climate_coef) * _positive("ecology_coef", ecology_coef)
+                   * _positive("region_coef", region_coef))
+    raw = (by_age + by_mileage) * coefficient
     total, capped = _capped(raw)
     return {
         "by_age_pct": money(by_age),
-        "overrun_thousand_km": money(overrun),
+        "mileage_counted_thousand_km": money(counted),
         "by_mileage_pct": money(by_mileage),
-        "region_coef": region,
+        "coefficient": round(coefficient, 6),
+        "variant": "formula_2" if standard_mileage_thousand_per_year is None else "over_mileage",
         "wear_pct": money(total),
         "capped": capped,
         "checks": [f"Расчётный износ {money(raw)} % вне [0; 100] и ограничен."] if capped else [],
-        "guardrails": ["Нормативы И_1, И_2, П_с и А_3 — по таблицам документа для типа ТС и региона: укажите источник."],
+        "guardrails": guardrails,
     }
 
 

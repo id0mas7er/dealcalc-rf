@@ -99,4 +99,6 @@ def test_split_and_mean_reminders():
 def test_split_reports_the_rounding_difference():
     result = rf.split_set_price(100, {"a": 1, "b": 1, "c": 1}, base_source="договор", context=CONTEXT)
 
-    assert result["rounding_difference"] == 0.01 and result["checks"]
+    prices = [item["price"] for item in result["items"]]
+    assert result["rounding_difference"] == 0.01 and prices == [33.33, 33.33, 33.34]
+    assert round(sum(prices), 2) == 100 and result["items"][-1]["rounding_adjustment"] == 0.01

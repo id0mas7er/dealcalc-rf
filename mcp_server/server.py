@@ -899,16 +899,19 @@ def rf_vehicle_wear_rd37(
     age_years: float,
     mileage_thousand_km: float,
     age_rate_pct: float,
-    overrun_rate_pct: float,
-    standard_mileage_thousand_per_year: float,
+    mileage_rate_pct: float,
+    climate_coef: float = 1,
+    ecology_coef: float = 1,
     region_coef: float = 1,
+    standard_mileage_thousand_per_year: Optional[float] = None,
     context: Optional[dict] = None,
 ) -> dict:
-    """Физический износ ТС по РД 37.009.015-98 (возраст и перепробег):
-    И = (И_2·Д_ф + И_1·(П_ф − П_с·Д_ф))·А_3; нормативы — по таблицам документа, от оценщика."""
-    return rf.vehicle_wear_rd37(age_years, mileage_thousand_km, age_rate_pct, overrun_rate_pct,
-                                standard_mileage_thousand_per_year, region_coef, context=context)
-
+    """Физический износ ТС по РД 37.009.015-98, формула (2): И = (И_1·П_ф + И_2·Д_ф)·А_2·А_3·А_4
+    (И_1 — % на 1000 км фактического пробега, И_2 — % за год, А_2 — климат, А_3 — экология, А_4 — тип
+    региона; приложения И, К). С standard_mileage_thousand_per_year — вариант с перепробегом
+    И_1·(П_ф − П_с·Д_ф), как в части отчётов: это не формула РД, с напоминанием."""
+    return rf.vehicle_wear_rd37(age_years, mileage_thousand_km, age_rate_pct, mileage_rate_pct, climate_coef,
+                                ecology_coef, region_coef, standard_mileage_thousand_per_year, context=context)
 
 @tool
 def rf_vehicle_wear_exponential(

@@ -10,13 +10,24 @@ from dealcalc import rf
 
 
 def test_rd37_reproduces_report_147():
-    result = rf.vehicle_wear_rd37(11.25, 291.827, 5.2, 0.25, 20, region_coef=1.1)
+    result = rf.vehicle_wear_rd37(11.25, 291.827, 5.2, 0.25, region_coef=1.1, standard_mileage_thousand_per_year=20)
 
     assert result["wear_pct"] == 82.73 and not result["capped"]
+    assert result["variant"] == "over_mileage" and any("не формула (2)" in item for item in result["guardrails"])
+
+
+def test_rd37_formula_2_uses_the_whole_mileage_and_three_coefficients():
+    """РД 37.009.015-98, п. 4.2.1, формула (2) — ревью Codex 13.10.2026."""
+
+    plain = rf.vehicle_wear_rd37(10, 100, 2, 0.3)
+    coefs = rf.vehicle_wear_rd37(10, 100, 2, 0.3, climate_coef=1.1, ecology_coef=1.05, region_coef=0.9)
+
+    assert plain["wear_pct"] == 50 and plain["variant"] == "formula_2"
+    assert coefs["wear_pct"] == round(50 * 1.1 * 1.05 * 0.9, 2)
 
 
 def test_rd37_is_limited_to_100():
-    result = rf.vehicle_wear_rd37(30, 900, 5.2, 0.25, 20, region_coef=1.1)
+    result = rf.vehicle_wear_rd37(30, 900, 5.2, 0.25, region_coef=1.1, standard_mileage_thousand_per_year=20)
 
     assert result["wear_pct"] == 100 and result["capped"] and result["checks"]
 

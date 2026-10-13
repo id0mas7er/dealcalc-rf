@@ -1299,6 +1299,11 @@ def interpolate_index(
         raise ValueError("before.date must be earlier than after.date")
     share = (when - d1).days / (d2 - d1).days
     value = v1 + (v2 - v1) * share
+    if value <= 0:
+        raise ValueError(
+            f"индекс на {when.isoformat()} получается {round(value, 4)} (экстраполяция за пределы дат): "
+            "возьмите опубликованные значения, между которыми лежит дата"
+        )
     ratio = None
     if base_value is not None:
         base = _finite_number("base_value", base_value)

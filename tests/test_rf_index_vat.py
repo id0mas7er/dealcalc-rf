@@ -51,3 +51,8 @@ def test_vat_breakdown_reproduces_lager_and_nissan():
 def test_part_without_indices_is_a_clear_error():
     with pytest.raises(ValueError, match="хотя бы один индекс"):
         rf.composite_replacement_cost([{"name": "a", "base_cost": 100}], context=CONTEXT)
+
+
+def test_extrapolation_to_a_negative_index_is_an_error():
+    with pytest.raises(ValueError, match="экстраполяция"):
+        rf.interpolate_index("2010-01-01", {"date": "2020-01-01", "value": 100}, {"date": "2021-01-01", "value": 200})
