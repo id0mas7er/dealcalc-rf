@@ -317,6 +317,25 @@ def _fx_guardrails(result: Mapping[str, Any]) -> List[str]:
     ]
 
 
+def _land_step_guardrails(result: Mapping[str, Any]) -> List[str]:
+    """A land step that divides the subject's land by the analog's area (разбор 108/25-ю)."""
+
+    found = sorted({
+        item.get("index")
+        for item in result.get("comparables") or []
+        if isinstance(item, Mapping)
+        for step in item.get("adjustments") or []
+        if isinstance(step, Mapping) and step.get("type") == "land" and step.get("basis") == "analog_area"
+    }, key=str)
+    if not found:
+        return []
+    return [
+        f"Аналоги {found}: поправка на землю делит стоимость земли объекта на площадь аналога — "
+        "в итог земля объекта входит в пропорции площадей, а не полностью. Обоснуйте метод "
+        "или используйте basis: subject_area (земля объекта на м² объекта)."
+    ]
+
+
 def _weighting_guardrails(result: Mapping[str, Any]) -> List[str]:
     if result.get("weighting") in (None, "manual"):
         return []
@@ -638,6 +657,7 @@ def method_card(
             guardrails += offer_guardrails(result) + identifier_guardrails(result)
             guardrails += _weighting_guardrails(result)
             guardrails += _land_vat_guardrails(assignment, result) + _fx_guardrails(result)
+            guardrails += _land_step_guardrails(result)
             guardrails += _stale_price_guardrails(assignment, result) + _city_guardrails(result)
             if context_reminder:
                 guardrails += _context_guardrails(assignment)

@@ -253,6 +253,13 @@ def apply_adjustments(
       adjustment is taken; the first stage where it is within 30 % wins,
       otherwise the smallest of all evaluated variants (``selection``
       ``smallest_of_all``, which needs the appraiser's ``justification``).
+    * ``land`` — the land within a single property object (ЕОН): adds
+      ``subject_land_value / subject_area − analog_land_value / analog_area``
+      per unit (the land of the subject on a unit of the subject minus the
+      land of the analog on a unit of the analog). ``basis: "analog_area"``
+      divides the difference of the land values by the analog's area, as
+      some reports do — the subject's land then enters the result scaled by
+      the ratio of areas, which is flagged.
 
     ``range`` (``{"low", "high"}``, optional ``mean`` and the extended
     interval ``extended_low`` / ``extended_high``) holds the bounds of the
@@ -354,6 +361,28 @@ def apply_adjustments(
                 threshold_pct=CHOICE_THRESHOLD_PCT,
                 factor=round(chosen["factor"], 4),
             )
+        elif kind == "land":
+            subject_land = _finite(f"{name_prefix}.subject_land_value", step.get("subject_land_value"))
+            analog_land = _finite(f"{name_prefix}.analog_land_value", step.get("analog_land_value", 0))
+            subject_area = _finite(f"{name_prefix}.subject_area", step.get("subject_area"))
+            analog_area = _finite(f"{name_prefix}.analog_area", step.get("analog_area"))
+            if subject_land < 0 or analog_land < 0:
+                raise ValueError(f"{name_prefix}: land values must be non-negative")
+            if subject_area <= 0 or analog_area <= 0:
+                raise ValueError(f"{name_prefix}: subject_area and analog_area must be greater than 0")
+            basis = step.get("basis", "subject_area")
+            if basis == "subject_area":
+                value = subject_land / subject_area - analog_land / analog_area
+            elif basis == "analog_area":
+                value = (subject_land - analog_land) / analog_area
+            else:
+                raise ValueError(f"{name_prefix}.basis must be 'subject_area' or 'analog_area'")
+            new_price = price + value
+            record.update(
+                subject_land_value=money(subject_land), analog_land_value=money(analog_land),
+                subject_area=subject_area, analog_area=analog_area, basis=basis, value=money(value),
+                price_without_land=money(price - analog_land / analog_area),
+            )
         elif kind == "depreciation":
             analog_pct = _finite(f"{name_prefix}.analog_pct", step.get("analog_pct"))
             subject_pct = _finite(
@@ -371,7 +400,7 @@ def apply_adjustments(
         else:
             raise ValueError(
                 f"{name_prefix}.type must be 'pct', 'pct_group', 'coef', 'ratio', 'abs', 'param', "
-                "'staged' or 'depreciation'"
+                "'staged', 'depreciation' or 'land'"
             )
         if new_price <= 0:
             raise ValueError(f"{name_prefix}: adjusted price must be greater than 0")

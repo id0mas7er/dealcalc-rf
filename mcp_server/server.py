@@ -211,7 +211,9 @@ def rf_comparative_approach(
     уравнения, вне её — замечание), staged (stages — этапы вариантов с label: среднее
     уравнение → уравнения границ расширенного интервала → таблица; берётся первый этап с
     поправкой до 30 %,
-    иначе наименьшая с justification), depreciation (analog_pct, subject_pct). У шага —
+    иначе наименьшая с justification), depreciation (analog_pct, subject_pct), land — земля в составе
+    ЕОН (subject_land_value, subject_area, analog_land_value, analog_area; прибавляет земля объекта на м²
+    объекта − земля аналога на м² аналога; basis: analog_area — как в части отчётов, с напоминанием). У шага —
     source, date, page, justification, factor (фактор в группе pct_group) и range {low, high,
     mean, extended_low, extended_high, kind: values | confidence, source, date, page} —
     границы справочника (вне границ значения — замечание; вне доверительного интервала
@@ -504,6 +506,7 @@ def rf_reconcile_approaches(
     currency: str = "RUB",
     divergence_base: str = "min",
     value_interval: Optional[dict] = None,
+    land_adjustments: Optional[dict] = None,
     context: Optional[dict] = None,
 ) -> dict:
     """Согласование результатов подходов (ФСО V, п. 3). Механическое усреднение не допускается.
@@ -516,7 +519,9 @@ def rf_reconcile_approaches(
     justification — статус «согласование не автоматизировано», reconciled_value = null,
     взвешенное число — только weighted_value_diagnostic. approaches_spread — разброс
     подходов, не интервал стоимости. value_interval {low, high, justification} — суждение
-    оценщика о границах интервала стоимости (ФСО №7, п. 30); задаёт только оценщик."""
+    оценщика о границах интервала стоимости (ФСО №7, п. 30); задаёт только оценщик.
+    land_adjustments {подход: сумма} — излишек (+) / недостаток (−) земли, учтённый в каждом
+    подходе (rf_land_sufficiency); разные суммы — замечание без justification."""
     return rf.reconcile_approaches(
         approach_values,
         weights,
@@ -525,8 +530,51 @@ def rf_reconcile_approaches(
         currency,
         divergence_base,
         value_interval,
+        land_adjustments,
         context=context,
     )
+
+
+@tool
+def rf_land_sufficiency(
+    actual_land_sqm: float,
+    land_unit_value: float,
+    building_area_sqm: Optional[float] = None,
+    building_density: Optional[float] = None,
+    required_land_sqm: Optional[float] = None,
+    currency: str = "RUB",
+    context: Optional[dict] = None,
+) -> dict:
+    """Излишек (+) или недостаток (−) земли в составе ЕОН: (S_факт − S_треб) × цена 1 м² земли.
+
+    S_треб — required_land_sqm или building_area_sqm / building_density (типичная плотность
+    застройки аналогов: м² здания на м² земли, задаёт оценщик). Цена 1 м² земли — по рынку
+    земли. Сумму учитывать одинаково во всех подходах с типичными аналогами и передать в
+    rf_reconcile_approaches (land_adjustments)."""
+    return rf.land_sufficiency(
+        actual_land_sqm, land_unit_value, building_area_sqm, building_density, required_land_sqm, currency,
+        context=context,
+    )
+
+
+@tool
+def rf_allocate_value(
+    total_value: float,
+    parts: List[dict],
+    land_value: Optional[float] = None,
+    land_share_pct: Optional[float] = None,
+    round_to: Optional[float] = None,
+    currency: str = "RUB",
+    context: Optional[dict] = None,
+) -> dict:
+    """Разнесение стоимости ЕОН на землю и здания (помещения).
+
+    Земля — land_value или total_value × land_share_pct / 100; остаток делится между parts
+    ({name, area_sqm, coef} или {name, components: [{area_sqm, coef}]} — части здания с разными
+    коэффициентами, например отапливаемые и нет) пропорционально Σ площадь × коэффициент.
+    round_to — шаг округления долей (1000); расхождение округлённых долей с итогом — замечание.
+    Земля НДС не облагается: НДС «в т.ч.» — только с долей зданий."""
+    return rf.allocate_value(total_value, parts, land_value, land_share_pct, round_to, currency, context=context)
 
 
 @tool

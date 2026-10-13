@@ -831,6 +831,7 @@ def reconcile_approaches(
     currency: str = "RUB",
     divergence_base: str = "min",
     value_interval: Optional[Mapping[str, Any]] = None,
+    land_adjustments: Optional[Mapping[str, float]] = None,
 ) -> Dict[str, Any]:
     """Reconcile indicated values with appraiser-supplied weights.
 
@@ -850,6 +851,12 @@ def reconcile_approaches(
     appraiser's judgment of the bounds within which the value may lie
     (ФСО №7, п. 30, unless the assignment says otherwise). It is not derived
     from the spread of approaches or analogs.
+
+    ``land_adjustments`` — ``{approach: amount}``, the excess (+) or deficit
+    (−) of land (:func:`land_sufficiency`) taken into each approach. The same
+    object has the same land: different amounts are flagged unless a
+    ``justification`` explains them (the analogs of that approach already
+    reflect the land).
     """
 
     if not approach_values:
@@ -935,6 +942,19 @@ def reconcile_approaches(
                 f"Согласованная стоимость {_round(reconciled)} вне интервала оценщика "
                 f"[{interval['low']}; {interval['high']}]: проверьте интервал."
             )
+    land = None
+    if land_adjustments is not None:
+        if not isinstance(land_adjustments, Mapping) or set(land_adjustments) != set(values):
+            raise ValueError("land_adjustments must name exactly the same approaches as approach_values")
+        land = {
+            name: _finite_number(f"land_adjustments[{name}]", land_adjustments[name]) for name in values
+        }
+        if len({round(amount, 2) for amount in land.values()}) > 1:
+            text = (
+                f"Излишек/недостаток земли учтён в подходах по-разному ({land}): объект один и земля "
+                "одна — учтите её одинаково или обоснуйте, почему аналоги подхода её уже отражают"
+            )
+            checks.append(f"{text}." if note is None else f"{text}; приведено обоснование оценщика.")
     if excluded and note is None:
         checks.append(
             f"Подходы {excluded} исключены (вес 0) без обоснования: приведите причину "
@@ -960,6 +980,7 @@ def reconcile_approaches(
         # The spread of the approaches, not an interval of value (ФСО №7, п. 30).
         "approaches_spread": {"low": _round(low), "high": _round(high)},
         "value_interval": interval,
+        "land_adjustments": None if land is None else {name: _round(amount) for name, amount in land.items()},
         "guardrails": (
             [
                 "Для недвижимости после согласования приведите суждение о границах интервала "
@@ -983,3 +1004,156 @@ def reconcile_approaches(
     if status is not None:
         result["status"] = status
     return result
+
+
+@method_card(
+    "LAND_SUFFICIENCY",
+    "ФСО V; ФСО №7, п. 22",
+    "S_треб = S_здания / плотность (или задана); ΔS = S_факт − S_треб; Δ = ΔS × c_земли",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
+)
+def land_sufficiency(
+    actual_land_sqm: float,
+    land_unit_value: float,
+    building_area_sqm: Optional[float] = None,
+    building_density: Optional[float] = None,
+    required_land_sqm: Optional[float] = None,
+    currency: str = "RUB",
+) -> Dict[str, Any]:
+    """Excess (+) or deficit (−) of land of a single property object.
+
+    The land the building typically needs is ``required_land_sqm`` or
+    ``building_area_sqm / building_density`` (the typical density of
+    development of the analogs: building area per m² of land). The
+    difference with the actual plot times the value of 1 m² of land is the
+    amount to add (excess) or subtract (deficit) — in every approach whose
+    analogs have typical land (:func:`reconcile_approaches`,
+    ``land_adjustments``).
+    """
+
+    actual = _non_negative("actual_land_sqm", actual_land_sqm)
+    unit_value = _non_negative("land_unit_value", land_unit_value)
+    if required_land_sqm is not None:
+        if building_density is not None:
+            raise ValueError("give required_land_sqm or building_density, not both")
+        required = _non_negative("required_land_sqm", required_land_sqm)
+    else:
+        if building_density is None or building_area_sqm is None:
+            raise ValueError("give required_land_sqm or building_area_sqm with building_density")
+        density = _finite_number("building_density", building_density)
+        if density <= 0:
+            raise ValueError("building_density must be greater than 0")
+        required = _non_negative("building_area_sqm", building_area_sqm) / density
+    difference = actual - required
+    amount = difference * unit_value
+    return {
+        "currency": _currency(currency),
+        "actual_land_sqm": _round(actual),
+        "required_land_sqm": _round(required),
+        "difference_sqm": _round(difference),
+        "kind": "излишек" if difference > 0 else ("недостаток" if difference < 0 else "нет"),
+        "land_unit_value": _round(unit_value),
+        "adjustment": _round(amount),
+        "guardrails": [
+            "Учтите излишек/недостаток земли одинаково во всех подходах, аналоги которых имеют типичную "
+            "обеспеченность землёй (сравнительный и доходный), и передайте суммы в "
+            "reconcile_approaches (land_adjustments). Цена 1 м² земли — по рынку земли, не из цен ЕОН."
+        ] if amount else [],
+    }
+
+
+@method_card(
+    "VALUE_ALLOCATION",
+    "ФСО V; ФСО №7",
+    "V_земли — задана (или V × доля); V_i = (V − V_земли) × A_i k_i / Σ A_j k_j",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
+)
+def allocate_value(
+    total_value: float,
+    parts: Sequence[Mapping[str, Any]],
+    land_value: Optional[float] = None,
+    land_share_pct: Optional[float] = None,
+    round_to: Optional[float] = None,
+    currency: str = "RUB",
+) -> Dict[str, Any]:
+    """Split the value of a single property object into land and buildings.
+
+    The land is ``land_value`` or ``total_value × land_share_pct / 100``;
+    the rest is shared between ``parts`` (``{"name", "area_sqm", "coef"}`` or
+    ``{"name", "components": [{"area_sqm", "coef"}]}`` — parts of a building
+    with different coefficients, such as heated and unheated premises) in
+    proportion to ``Σ area × coef``. ``round_to`` rounds every share (1000 —
+    to thousands); if the rounded shares do not add up to the total, the
+    difference is reported.
+    """
+
+    total = _non_negative("total_value", total_value)
+    if (land_value is None) == (land_share_pct is None) and land_value is not None:
+        raise ValueError("give land_value or land_share_pct, not both")
+    if land_share_pct is not None:
+        land = total * _percentage("land_share_pct", land_share_pct, minimum=0, maximum=100) / 100
+    else:
+        land = _non_negative("land_value", land_value or 0)
+    if land > total:
+        raise ValueError("land value must not exceed total_value")
+    if not parts:
+        raise ValueError("parts must contain at least one building or premises")
+    weighted = []
+    for index, part in enumerate(parts):
+        prefix = f"parts[{index}]"
+        if not isinstance(part, Mapping) or not isinstance(part.get("name"), str) or not part["name"].strip():
+            raise ValueError(f"{prefix} must be an object with a non-empty name")
+        components = part.get("components")
+        if components is None:
+            components = [{"area_sqm": part.get("area_sqm"), "coef": part.get("coef", 1)}]
+        if not isinstance(components, Sequence) or not components:
+            raise ValueError(f"{prefix}.components must be a non-empty list")
+        area = weight = 0.0
+        for number, component in enumerate(components):
+            if not isinstance(component, Mapping):
+                raise ValueError(f"{prefix}.components[{number}] must be an object")
+            square = _finite_number(f"{prefix}.components[{number}].area_sqm", component.get("area_sqm"))
+            coef = _finite_number(f"{prefix}.components[{number}].coef", component.get("coef", 1))
+            if square <= 0 or coef <= 0:
+                raise ValueError(f"{prefix}.components[{number}]: area_sqm and coef must be greater than 0")
+            area += square
+            weight += square * coef
+        weighted.append((part["name"].strip(), area, weight))
+    step = None
+    if round_to is not None:
+        step = _finite_number("round_to", round_to)
+        if step <= 0:
+            raise ValueError("round_to must be greater than 0")
+
+    def rounded(value: float) -> float:
+        return value if step is None else round(value / step) * step
+
+    rest = total - land
+    weight_total = sum(weight for _, _, weight in weighted)
+    items = [
+        {
+            "name": name,
+            "area_sqm": _round(area),
+            "weighted_area_sqm": _round(weight),
+            "share": round(weight / weight_total, 6),
+            "value": _round(rounded(rest * weight / weight_total)),
+            "value_per_sqm": _round(rest * weight / weight_total / area),
+        }
+        for name, area, weight in weighted
+    ]
+    land_rounded = _round(rounded(land))
+    difference = _round(total - land_rounded - sum(item["value"] for item in items))
+    return {
+        "currency": _currency(currency),
+        "total_value": _round(total),
+        "land_value": land_rounded,
+        "buildings_value": _round(rest),
+        "parts": items,
+        "rounding_difference": difference,
+        "checks": [
+            f"Сумма округлённых частей отличается от итога на {difference}: распределите разницу явно."
+        ] if difference else [],
+    }
+

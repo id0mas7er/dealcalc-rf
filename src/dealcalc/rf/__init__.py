@@ -8,7 +8,9 @@ valuation report compliant with Russian appraisal standards.
 from .real_estate import (
     cap_rate_extraction,
     comparative_approach,
+    allocate_value,
     cost_approach,
+    land_sufficiency,
     dcf_valuation,
     gross_rent_multiplier,
     income_capitalization,
@@ -62,7 +64,9 @@ from .vehicle import vehicle_comparative_approach
 
 __all__ = [
     "comparative_approach",
+    "allocate_value",
     "cost_approach",
+    "land_sufficiency",
     "indexed_replacement_cost",
     "dcf_valuation",
     "income_capitalization",
