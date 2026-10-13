@@ -46,3 +46,8 @@ def test_vat_breakdown_reproduces_lager_and_nissan():
     assert nissan["vat"] == 170_166.67 and nissan["value_without_vat"] == 850_833.33
     with pytest.raises(ValueError, match="land_value"):
         rf.vat_breakdown(100, 20, land_value=200)
+
+
+def test_part_without_indices_is_a_clear_error():
+    with pytest.raises(ValueError, match="хотя бы один индекс"):
+        rf.composite_replacement_cost([{"name": "a", "base_cost": 100}], context=CONTEXT)

@@ -122,7 +122,7 @@ def tool(func: Callable[..., Any]) -> Callable[..., Any]:
 def rf_check_assignment(assignment: dict) -> dict:
     """Проверка задания на оценку до любого расчёта (ФСО III, IV, II). Вызывайте первой.
 
-    assignment: object_type (real_estate | business | machinery | vehicle | intangible — НМА, ФСО №11 |
+    assignment: object_type (real_estate | business | machinery | vehicle | intangible — НМА, ФСО XI |
     claim — права требования),
     object_description, rights, purpose, value_type (рыночная, инвестиционная,
     равновесная, ликвидационная), value_premises, valuation_date (ГГГГ-ММ-ДД) и
@@ -461,7 +461,7 @@ def rf_intangible_cost_method(
     currency: str = "RUB",
     context: Optional[dict] = None,
 ) -> dict:
-    """Затратный метод для НМА (ФСО №11): фактические затраты, приведённые к дате оценки (steps —
+    """Затратный метод для НМА (ФСО XI, п. 18): фактические затраты, приведённые к дате оценки (steps —
     индекс цен, типы шагов как в rf_comparative_approach), × (1 + прибыль) × (1 − Т_исп / Т_пи).
     items: {name, costs: [{amount, steps, source, date}], used_years, useful_life_years,
     protection_years_left}. Курс валюты — не индекс цен; срок — по каждому виду НМА."""
@@ -480,7 +480,7 @@ def rf_relief_from_royalty(
     royalty_source: Optional[str] = None,
     context: Optional[dict] = None,
 ) -> dict:
-    """Метод освобождения от роялти (ФСО №11): роялти = выручка × ставка (× (1 − налог)),
+    """Метод освобождения от роялти (ФСО XI, пп. 14–15): роялти = выручка × ставка (× (1 − налог)),
     V = Σ роялти / (1 + r)^t + паушальный платёж. periods — моменты дисконтирования в годах
     (0,38; 1,38…), по умолчанию 1, 2, …"""
     return rf.relief_from_royalty(revenues, royalty_rate_pct, discount_rate_pct, periods, tax_rate_pct, lump_sum,
@@ -490,22 +490,26 @@ def rf_relief_from_royalty(
 @tool
 def rf_bankruptcy_claim_value(
     collateral_proceeds: float,
+    claim_amount: float,
     discount_rate_pct: float,
     months_to_payment: float,
     pledge_type: str = "credit",
     priority_claims: float = 0,
     other_estate_for_priority: float = 0,
-    costs: Optional[float] = None,
-    claim_amount: Optional[float] = None,
+    sale_costs: float = 0,
     context: Optional[dict] = None,
 ) -> dict:
-    """Право требования залогового кредитора к должнику-банкроту (ст. 138 Закона о банкротстве):
-    выручка от залога делится 80/15/5 (залог по кредиту, pledge_type=credit) или 70/20/10 (other);
-    доля 1–2 очереди — только на непокрытые иным имуществом требования (priority_claims −
-    other_estate_for_priority), остаток — залоговому кредитору до claim_amount; затем
-    дисконтирование за months_to_payment."""
-    return rf.bankruptcy_claim_value(collateral_proceeds, discount_rate_pct, months_to_payment, pledge_type,
-                                     priority_claims, other_estate_for_priority, costs, claim_amount,
+    """Право требования залогового кредитора к должнику-банкроту (ст. 138 Закона о банкротстве).
+
+    Из выручки от залога сначала покрываются расходы на его сохранность и торги (sale_costs, п. 6);
+    остаток делится 80/15/5 (залог по кредиту, pledge_type=credit) или 70/20/10 (other): доля 1–2
+    очереди — только на непокрытые иным имуществом требования (priority_claims −
+    other_estate_for_priority), её неиспользованная часть — залоговому кредитору; доля 5/10 % —
+    судебные расходы и вознаграждение управляющего. Кредитор получает не больше claim_amount
+    (сумма обеспеченного требования с процентами — обязательна). Затем дисконтирование за
+    months_to_payment."""
+    return rf.bankruptcy_claim_value(collateral_proceeds, claim_amount, discount_rate_pct, months_to_payment,
+                                     pledge_type, priority_claims, other_estate_for_priority, sale_costs,
                                      context=context)
 
 

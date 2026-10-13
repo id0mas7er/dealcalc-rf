@@ -1,4 +1,4 @@
-"""Intellectual property and intangible assets (FSO No. 11) and claims to a
+"""Intellectual property and intangible assets (FSO XI) and claims to a
 debtor in bankruptcy.
 
 Added after the study of appraisers' reports (13.10.2026): the cost method
@@ -46,10 +46,10 @@ def _rate(name: str, value: Any) -> float:
 
 @method_card(
     "INTANGIBLE_COST_METHOD",
-    "ФСО №11, п. 12 (затратный подход)",
+    "ФСО XI, п. 18 (затратный подход)",
     "C = Σ З_i × I_i × (1 + ПП); V = C × (1 − Т_исп / Т_пи)",
     FORMULA_TECHNICAL,
-    source_url="https://srosovet.ru/activities/npa/fso-11/",
+    source_url="https://fsosro.ru/01.01.031/664.aspx",
 )
 def intangible_cost_method(
     items: Sequence[Mapping[str, Any]],
@@ -143,10 +143,10 @@ def intangible_cost_method(
 
 @method_card(
     "RELIEF_FROM_ROYALTY",
-    "ФСО №11, п. 11 (доходный подход: метод освобождения от роялти)",
+    "ФСО XI, пп. 14–15 (доходный подход: освобождение от роялти)",
     "R_t = Выручка_t × ставка роялти × (1 − налог); V = Σ R_t / (1 + r)^t_i + паушальный платёж",
     FORMULA_TECHNICAL,
-    source_url="https://srosovet.ru/activities/npa/fso-11/",
+    source_url="https://fsosro.ru/01.01.031/664.aspx",
 )
 def relief_from_royalty(
     revenues: Sequence[float],
@@ -205,83 +205,87 @@ def relief_from_royalty(
     }
 
 
-# Shares of the proceeds of a pledge (art. 138 of the Law on bankruptcy):
-# secured creditor / claims of the 1st–2nd priority / costs.
+# Shares of the net proceeds of a pledge (art. 138 of the Law on bankruptcy):
+# secured creditor / claims of the 1st–2nd priority / court costs and the
+# manager's fee.
 _SHARES = {"credit": (80, 15, 5), "other": (70, 20, 10)}
 
 
 @method_card(
     "BANKRUPTCY_SECURED_CLAIM",
     "ФСО I–V; ФЗ «О несостоятельности (банкротстве)», ст. 138",
-    "В = min(требование, П − min(доля 1–2 очереди × П, нужно 1–2 очереди) − расходы); V = В / (1 + r)^(t/12)",
+    "П' = П − расходы на сохранность и торги; В = min(требование, П' × (доля кредитора + доля 1–2 очереди) "
+    "− направлено на 1–2 очередь); V = В / (1 + r)^(t/12)",
     FORMULA_TECHNICAL,
     source_url="https://www.consultant.ru/document/cons_doc_LAW_39331/",
 )
 def bankruptcy_claim_value(
     collateral_proceeds: float,
+    claim_amount: float,
     discount_rate_pct: float,
     months_to_payment: float,
     pledge_type: str = "credit",
     priority_claims: float = 0,
     other_estate_for_priority: float = 0,
-    costs: Optional[float] = None,
-    claim_amount: Optional[float] = None,
+    sale_costs: float = 0,
 ) -> Dict[str, Any]:
     """Value of a secured creditor's claim to a debtor in bankruptcy.
 
-    The proceeds from the sale of the pledge are split by art. 138: for a
-    pledge securing a credit agreement (``pledge_type="credit"``) 80 % to the
-    secured creditor, 15 % to the claims of the 1st–2nd priority, 5 % to the
-    costs; otherwise 70 / 20 / 10. The share of the priority claims is used
-    only for what the other estate does not cover
+    ``sale_costs`` — the costs of keeping the pledge and selling it at
+    auction — are covered from the proceeds before the creditors (art. 138,
+    p. 6). The rest is split by art. 138: for a pledge securing a credit
+    agreement (``pledge_type="credit"``) 80 % to the secured creditor, 15 % to
+    the claims of the 1st–2nd priority, 5 % to the court costs and the
+    manager's fee; otherwise 70 / 20 / 10. The share of the priority claims
+    is used only for what the other estate does not cover
     (``priority_claims − other_estate_for_priority``); its unused part goes to
-    the secured creditor, up to ``claim_amount``. The share of the costs is
-    not the creditor's (its remainder goes to the estate); ``costs`` above it
-    are flagged. The payment is discounted for ``months_to_payment``.
+    the secured creditor. The share of the costs is not the creditor's. The
+    creditor receives no more than ``claim_amount`` (the secured debt with
+    interest) — it is required: without it the value is not defined. The
+    payment is discounted for ``months_to_payment``.
     """
 
     proceeds = _non_negative("collateral_proceeds", collateral_proceeds)
+    claim = _non_negative("claim_amount", claim_amount)
     rate = _rate("discount_rate_pct", discount_rate_pct)
     months = _non_negative("months_to_payment", months_to_payment)
     if pledge_type not in _SHARES:
         raise ValueError("pledge_type must be 'credit' or 'other'")
+    costs = _non_negative("sale_costs", sale_costs)
+    if costs > proceeds:
+        raise ValueError("sale_costs must not exceed collateral_proceeds")
     secured_share, priority_share, costs_share = _SHARES[pledge_type]
+    net = proceeds - costs
     need = max(0.0, _non_negative("priority_claims", priority_claims)
                - _non_negative("other_estate_for_priority", other_estate_for_priority))
-    to_priority = min(proceeds * priority_share / 100, need)
-    cost_limit = proceeds * costs_share / 100
-    spent = cost_limit if costs is None else _non_negative("costs", costs)
-    checks: List[str] = []
-    if spent > cost_limit:
-        checks.append(
-            f"Расходы {money(spent)} больше {costs_share} % выручки ({money(cost_limit)}): сверх лимита они "
-            "покрываются из иного имущества — проверьте."
-        )
-        spent = cost_limit
-    to_creditor = proceeds * (secured_share + priority_share) / 100 - to_priority
-    capped = False
-    if claim_amount is not None:
-        claim = _non_negative("claim_amount", claim_amount)
-        if to_creditor > claim:
-            to_creditor, capped = claim, True
+    to_priority = min(net * priority_share / 100, need)
+    to_creditor = net * (secured_share + priority_share) / 100 - to_priority
+    capped = to_creditor > claim
+    if capped:
+        to_creditor = claim
     factor = 1 / (1 + rate / 100) ** (months / 12)
     return {
         "pledge_type": pledge_type,
         "shares_pct": dict(zip(("secured", "priority_1_2", "costs"), _SHARES[pledge_type])),
         "collateral_proceeds": money(proceeds),
+        "sale_costs": money(costs),
+        "net_proceeds": money(net),
         "priority_need": money(need),
         "to_priority_claims": money(to_priority),
-        "costs": money(spent),
+        "reserve_for_costs": money(net * costs_share / 100),
+        "claim_amount": money(claim),
         "to_secured_creditor": money(to_creditor),
         "capped_by_claim": capped,
         "discount_factor": round(factor, 6),
         "value": money(to_creditor * factor),
-        "checks": checks,
         "guardrails": [
             "Очерёдность, требования 1–2 очереди, текущие платежи и иное имущество должника — по реестру "
             "требований и данным управляющего; распределение выручки проверьте с юристом."
         ] + ([] if priority_claims else [
             "Требования 1–2 очереди не заданы: подтвердите, что их нет или они покрываются иным имуществом "
             "(ст. 138: иначе до 15–20 % выручки от залога идёт на них)."
+        ]) + ([] if sale_costs else [
+            "Расходы на сохранность залога и торги (ст. 138, п. 6) не заданы: они покрываются из выручки до "
+            "распределения — подтвердите их размер."
         ]),
     }

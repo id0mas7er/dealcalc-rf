@@ -704,14 +704,21 @@ def split_set_price(
         raise ValueError("base_prices must name at least one item")
     bases = {str(name): _positive(f"base_prices[{name}]", value) for name, value in base_prices.items()}
     base_total = sum(bases.values())
+    items = [
+        {"name": name, "base_price": money(base), "share_pct": round(base / base_total * 100, 4),
+         "price": money(total * base / base_total)}
+        for name, base in bases.items()
+    ]
+    # Округлённые доли могут не дать цену комплекта (100 на три → 99,99).
+    difference = money(total - sum(item["price"] for item in items))
     return {
         "set_price": money(total),
         "base_source": base_source,
-        "items": [
-            {"name": name, "base_price": money(base), "share_pct": round(base / base_total * 100, 4),
-             "price": money(total * base / base_total)}
-            for name, base in bases.items()
-        ],
+        "items": items,
+        "rounding_difference": difference,
+        "checks": [
+            f"Сумма округлённых цен отличается от цены комплекта на {difference}: отнесите разницу на позицию явно."
+        ] if difference else [],
         "guardrails": [] if base_source else [
             "Назовите источник базовых цен (base_source): договор, прайс-лист и его дату."
         ],

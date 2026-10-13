@@ -1356,6 +1356,8 @@ def composite_replacement_cost(
             unit = _non_negative(f"{prefix}.unit_cost", part.get("unit_cost"))
             base = volume * unit
         chain = list(part.get("indices") or []) + list(common_indices or [])
+        if not chain:
+            raise ValueError(f"{prefix}: нужен хотя бы один индекс — indices части или common_indices")
         result = indexed_replacement_cost.__wrapped__(base, chain, regional_coefficient, vat_pct, part["name"], currency)
         checks += [f"{part['name'].strip()}: {text}" for text in result["checks"]]
         total += result["replacement_cost"]

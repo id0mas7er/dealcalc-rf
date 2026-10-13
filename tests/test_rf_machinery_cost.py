@@ -94,3 +94,9 @@ def test_split_and_mean_reminders():
 
     assert [item["price"] for item in kit["items"]] == [25, 75] and kit["guardrails"]
     assert quotes["mean_price"] == 125 and quotes["spread_pct"] == 50 and quotes["guardrails"]
+
+
+def test_split_reports_the_rounding_difference():
+    result = rf.split_set_price(100, {"a": 1, "b": 1, "c": 1}, base_source="договор", context=CONTEXT)
+
+    assert result["rounding_difference"] == 0.01 and result["checks"]

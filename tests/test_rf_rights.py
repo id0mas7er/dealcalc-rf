@@ -48,8 +48,9 @@ def test_relief_from_royalty():
 
 
 def test_bankruptcy_claim_reproduces_rshb():
-    as_report = rf.bankruptcy_claim_value(32_385_962, 24.34, 11, context=CONTEXT)
-    with_priority = rf.bankruptcy_claim_value(32_385_962, 24.34, 11, priority_claims=1_608_627, context=CONTEXT)
+    as_report = rf.bankruptcy_claim_value(32_385_962, 100_000_000, 24.34, 11, context=CONTEXT)
+    with_priority = rf.bankruptcy_claim_value(32_385_962, 100_000_000, 24.34, 11, priority_claims=1_608_627,
+                                             context=CONTEXT)
 
     assert as_report["to_secured_creditor"] == pytest.approx(30_766_664, abs=1)
     assert as_report["value"] == pytest.approx(25_197_287, abs=60)
@@ -59,8 +60,8 @@ def test_bankruptcy_claim_reproduces_rshb():
 
 
 def test_bankruptcy_claim_caps_and_shares():
-    capped = rf.bankruptcy_claim_value(1000, 0, 0, claim_amount=500, context=CONTEXT)
-    other = rf.bankruptcy_claim_value(1000, 0, 0, pledge_type="other", priority_claims=500, context=CONTEXT)
+    capped = rf.bankruptcy_claim_value(1000, 500, 0, 0, context=CONTEXT)
+    other = rf.bankruptcy_claim_value(1000, 10_000, 0, 0, pledge_type="other", priority_claims=500, context=CONTEXT)
 
     assert capped["to_secured_creditor"] == 500 and capped["capped_by_claim"]
     assert other["to_priority_claims"] == 200 and other["to_secured_creditor"] == 700
@@ -73,3 +74,30 @@ def test_assignment_knows_new_object_types():
 
     assert result["can_proceed"]
     assert any("legal_protection" in item for item in result["checks"])
+
+
+# Ревью Codex 13.10.2026.
+
+
+def test_sale_costs_come_before_the_distribution():
+    result = rf.bankruptcy_claim_value(1000, 10_000, 0, 0, sale_costs=200, context=CONTEXT)
+
+    assert result["net_proceeds"] == 800 and result["to_secured_creditor"] == 760
+    assert result["reserve_for_costs"] == 40
+    assert not any("сохранность" in item for item in result["guardrails"])
+    with pytest.raises(ValueError, match="sale_costs"):
+        rf.bankruptcy_claim_value(1000, 10_000, 0, 0, sale_costs=2000, context=CONTEXT)
+
+
+def test_claim_amount_is_required():
+    with pytest.raises(TypeError):
+        rf.bankruptcy_claim_value(1000, 0, 0, context=CONTEXT)  # type: ignore[call-arg]
+
+
+def test_intangible_methods_cite_fso_xi():
+    cost = rf.intangible_cost_method([{"name": "a", "costs": [{"amount": 1}], "used_years": 0}],
+                                     useful_life_years=1, context=CONTEXT)
+    royalty = rf.relief_from_royalty([1], 1, 10, royalty_source="x", context=CONTEXT)
+
+    assert "ФСО XI, п. 18" in cost["method_card"]["standard"]
+    assert "ФСО XI" in royalty["method_card"]["standard"]
