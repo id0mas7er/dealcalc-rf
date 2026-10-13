@@ -122,7 +122,8 @@ def tool(func: Callable[..., Any]) -> Callable[..., Any]:
 def rf_check_assignment(assignment: dict) -> dict:
     """Проверка задания на оценку до любого расчёта (ФСО III, IV, II). Вызывайте первой.
 
-    assignment: object_type (real_estate | business | machinery | vehicle),
+    assignment: object_type (real_estate | business | machinery | vehicle | intangible — НМА, ФСО №11 |
+    claim — права требования),
     object_description, rights, purpose, value_type (рыночная, инвестиционная,
     равновесная, ликвидационная), value_premises, valuation_date (ГГГГ-ММ-ДД) и
     рекомендуемые сведения по типу объекта. Без критических сведений — статус
@@ -450,6 +451,62 @@ def rf_vat_breakdown(
     """НДС стоимости: vat_included — «в т.ч.» (выделить), иначе начислить сверху; land_value —
     часть без НДС (земля, НК РФ ст. 146 п. 2 пп. 6); round_to — округление итога до выделения."""
     return rf.vat_breakdown(value, vat_rate_pct, vat_included, land_value, round_to, context=context)
+
+
+@tool
+def rf_intangible_cost_method(
+    items: List[dict],
+    entrepreneurial_profit_pct: float = 0,
+    useful_life_years: Optional[float] = None,
+    currency: str = "RUB",
+    context: Optional[dict] = None,
+) -> dict:
+    """Затратный метод для НМА (ФСО №11): фактические затраты, приведённые к дате оценки (steps —
+    индекс цен, типы шагов как в rf_comparative_approach), × (1 + прибыль) × (1 − Т_исп / Т_пи).
+    items: {name, costs: [{amount, steps, source, date}], used_years, useful_life_years,
+    protection_years_left}. Курс валюты — не индекс цен; срок — по каждому виду НМА."""
+    return rf.intangible_cost_method(items, entrepreneurial_profit_pct, useful_life_years, currency,
+                                     context=context)
+
+
+@tool
+def rf_relief_from_royalty(
+    revenues: List[float],
+    royalty_rate_pct: float,
+    discount_rate_pct: float,
+    periods: Optional[List[float]] = None,
+    tax_rate_pct: float = 0,
+    lump_sum: float = 0,
+    royalty_source: Optional[str] = None,
+    context: Optional[dict] = None,
+) -> dict:
+    """Метод освобождения от роялти (ФСО №11): роялти = выручка × ставка (× (1 − налог)),
+    V = Σ роялти / (1 + r)^t + паушальный платёж. periods — моменты дисконтирования в годах
+    (0,38; 1,38…), по умолчанию 1, 2, …"""
+    return rf.relief_from_royalty(revenues, royalty_rate_pct, discount_rate_pct, periods, tax_rate_pct, lump_sum,
+                                  royalty_source, context=context)
+
+
+@tool
+def rf_bankruptcy_claim_value(
+    collateral_proceeds: float,
+    discount_rate_pct: float,
+    months_to_payment: float,
+    pledge_type: str = "credit",
+    priority_claims: float = 0,
+    other_estate_for_priority: float = 0,
+    costs: Optional[float] = None,
+    claim_amount: Optional[float] = None,
+    context: Optional[dict] = None,
+) -> dict:
+    """Право требования залогового кредитора к должнику-банкроту (ст. 138 Закона о банкротстве):
+    выручка от залога делится 80/15/5 (залог по кредиту, pledge_type=credit) или 70/20/10 (other);
+    доля 1–2 очереди — только на непокрытые иным имуществом требования (priority_claims −
+    other_estate_for_priority), остаток — залоговому кредитору до claim_amount; затем
+    дисконтирование за months_to_payment."""
+    return rf.bankruptcy_claim_value(collateral_proceeds, discount_rate_pct, months_to_payment, pledge_type,
+                                     priority_claims, other_estate_for_priority, costs, claim_amount,
+                                     context=context)
 
 
 @tool

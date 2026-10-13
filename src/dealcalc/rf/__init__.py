@@ -77,6 +77,7 @@ from .special import (
     market_rent_cost_plus,
 )
 from .vehicle import vehicle_comparative_approach
+from .rights import bankruptcy_claim_value, intangible_cost_method, relief_from_royalty
 
 __all__ = [
     "comparative_approach",
@@ -84,6 +85,9 @@ __all__ = [
     "cost_approach",
     "item_comparative_approach",
     "weights_from_scores",
+    "intangible_cost_method",
+    "relief_from_royalty",
+    "bankruptcy_claim_value",
     "interpolate_index",
     "composite_replacement_cost",
     "vat_breakdown",

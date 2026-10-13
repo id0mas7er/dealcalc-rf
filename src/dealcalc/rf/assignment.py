@@ -18,6 +18,8 @@ _OBJECT_TYPES = {
     "business": ("бизнес, акции, доли", "ФСО №8"),
     "machinery": ("машины и оборудование", "ФСО №10"),
     "vehicle": ("машины и оборудование (транспортное средство)", "ФСО №10"),
+    "intangible": ("нематериальные активы и интеллектуальная собственность", "ФСО №11"),
+    "claim": ("права требования (дебиторская задолженность)", "ФСО I–V"),
 }
 
 _VALUE_TYPES = (
@@ -46,6 +48,22 @@ _RECOMMENDED = {
         "actual_use",
         "lease_terms",
         "inspection_status",
+    ],
+    "intangible": [
+        "legal_protection",
+        "protection_term",
+        "rightholder",
+        "commercial_use",
+        "cost_documents",
+        "licenses",
+    ],
+    "claim": [
+        "debtor",
+        "claim_amount",
+        "claim_documents",
+        "collateral",
+        "debtor_status",
+        "creditor_priority",
     ],
     "business": [
         "security_or_interest_type",
@@ -149,7 +167,7 @@ def check_assignment(assignment: Mapping[str, Any]) -> Dict[str, Any]:
     """Check the valuation assignment before calculations.
 
     ``assignment`` holds ``object_type`` (``real_estate``, ``business``,
-    ``machinery`` or ``vehicle``), the critical items ``object_description``,
+    ``machinery``, ``vehicle``, ``intangible`` or ``claim``), the critical items ``object_description``,
     ``rights``, ``purpose``, ``value_type`` (рыночная, инвестиционная,
     равновесная, ликвидационная), ``value_premises`` and ``valuation_date``
     (YYYY-MM-DD), and recommended items of the input contract for the object
@@ -162,7 +180,7 @@ def check_assignment(assignment: Mapping[str, Any]) -> Dict[str, Any]:
     object_type = str(assignment.get("object_type") or "").strip().lower()
     if object_type not in _OBJECT_TYPES:
         raise ValueError(
-            "object_type must be 'real_estate', 'business', 'machinery' or 'vehicle'"
+            "object_type must be 'real_estate', 'business', 'machinery', 'vehicle', 'intangible' or 'claim'"
         )
     object_name, standard = _OBJECT_TYPES[object_type]
 
