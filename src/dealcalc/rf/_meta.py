@@ -304,9 +304,10 @@ def _fx_guardrails(result: Mapping[str, Any]) -> List[str]:
     """A currency rate used as a price index (разбор отчётов 58/25-ю, ГНТТП, БМК)."""
 
     names = [str(step.get("name", "")) for step in result.get("steps") or [] if isinstance(step, Mapping)]
-    for item in result.get("comparables") or []:
+    for item in list(result.get("comparables") or []) + list(result.get("items") or []):
         if isinstance(item, Mapping):
-            names += [str(step.get("name", "")) for step in item.get("adjustments") or [] if isinstance(step, Mapping)]
+            steps = list(item.get("adjustments") or []) + list(item.get("steps") or [])
+            names += [str(step.get("name", "")) for step in steps if isinstance(step, Mapping)]
     found = sorted({name for name in names if _FX_WORDS.search(name)})
     if not found:
         return []

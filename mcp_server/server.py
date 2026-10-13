@@ -745,6 +745,49 @@ def rf_residual_value(
 
 
 @tool
+def rf_machinery_cost_approach(
+    items: List[dict],
+    common_steps: Optional[List[dict]] = None,
+    physical_depreciation_pct: Optional[float] = None,
+    functional_depreciation_pct: float = 0,
+    external_depreciation_pct: float = 0,
+    vat_rate_pct: Optional[float] = None,
+    round_to: Optional[float] = None,
+    currency: str = "RUB",
+    context: Optional[dict] = None,
+) -> dict:
+    """Затратный подход для машин и оборудования списком позиций (ФСО №10, п. 14).
+
+    C = цена нового × шаги (сначала steps позиции — курс или индекс, монтаж в цене КП; затем
+    common_steps — торг, доставка, очистка от НДС, скидка вторичного рынка; типы шагов — как в
+    rf_comparative_approach: coef, ratio, pct, abs), И = 1 − (1 − И_физ)(1 − И_функ)(1 − И_внеш),
+    V = C × (1 − И). items: {name, new_price, steps, physical_depreciation_pct,
+    functional_depreciation_pct, external_depreciation_pct, source, date} — износ позиции
+    заменяет общий. vat_rate_pct — прибавить НДС к стоимости; round_to — округление каждой
+    позиции (1000), итог — сумма округлённых. Курс валюты для рублёвой цены — не индекс цен."""
+    return rf.machinery_cost_approach(
+        items, common_steps, physical_depreciation_pct, functional_depreciation_pct, external_depreciation_pct,
+        vat_rate_pct, round_to, currency, context=context,
+    )
+
+
+@tool
+def rf_split_set_price(
+    set_price: float, base_prices: dict, base_source: Optional[str] = None, context: Optional[dict] = None
+) -> dict:
+    """Разнесение цены комплекта по позициям пропорционально базовым ценам (договор, прайс-лист):
+    Ц_i = Ц × Б_i / Σ Б_j. base_prices — {позиция: базовая цена}; base_source — источник и дата."""
+    return rf.split_set_price(set_price, base_prices, base_source, context=context)
+
+
+@tool
+def rf_mean_new_price(quotes: List[dict], context: Optional[dict] = None) -> dict:
+    """Среднее нескольких цен нового (КП, прайсы): quotes [{price, source, date, url}]; разброс
+    больше 20 % — напоминание проверить модель и комплектацию."""
+    return rf.mean_new_price(quotes, context=context)
+
+
+@tool
 def rf_cost_from_price(
     price: float,
     profitability_pct: float,

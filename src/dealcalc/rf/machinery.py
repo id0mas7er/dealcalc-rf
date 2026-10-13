@@ -11,7 +11,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
-from ._adjustments import money
+from ._adjustments import apply_adjustments, money
 from ._meta import (
     FORMULA_METHODICAL,
     FORMULA_TECHNICAL,
@@ -568,3 +568,186 @@ def qualitative_adjustments(analogs: Sequence[Mapping[str, Any]]) -> Dict[str, A
         "range_pair": {"lower": best_lower[0]["index"], "upper": best_upper[0]["index"]},
         "checks": checks,
     }
+
+
+def _depreciation_pct(name: str, value: Any) -> float:
+    number = _number(name, value)
+    if not 0 <= number <= 100:
+        raise ValueError(f"{name} must be in [0, 100]")
+    return number
+
+
+def _rounded(value: float, step: Optional[float]) -> float:
+    return value if step is None else round(value / step) * step
+
+
+@method_card(
+    "MACHINERY_COST_APPROACH",
+    "ФСО №10, п. 14; Козлов В.В., Фролов И.С. «Оценка машин и оборудования»",
+    "C = Ц × k_1 × … × k_n (курс/индекс, торг, доставка, монтаж, НДС, вторичный рынок); "
+    "И = 1 − (1 − И_физ)(1 − И_функ)(1 − И_внеш); V = C × (1 − И)",
+    FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
+)
+def machinery_cost_approach(
+    items: Sequence[Mapping[str, Any]],
+    common_steps: Optional[Sequence[Mapping[str, Any]]] = None,
+    physical_depreciation_pct: Optional[float] = None,
+    functional_depreciation_pct: float = 0,
+    external_depreciation_pct: float = 0,
+    vat_rate_pct: Optional[float] = None,
+    round_to: Optional[float] = None,
+    currency: str = "RUB",
+) -> Dict[str, Any]:
+    """Cost approach for a list of machines: the price of a new item through
+    the chain of adjustments, then the depreciations.
+
+    Each item is ``{"name", "new_price", "steps", "physical_depreciation_pct",
+    "functional_depreciation_pct", "external_depreciation_pct", "source",
+    "date"}``; ``steps`` of the item (a currency rate or an index, mounting
+    included in the price) go first, then ``common_steps`` (bargaining,
+    delivery, removal of VAT, the discount of the secondary market) — the
+    step types of the comparative approach (``coef``, ``ratio``, ``pct``,
+    ``abs``…), every intermediate price kept. Depreciations of an item
+    override the common ones; the total is ``1 − Π(1 − И_i)``.
+    ``vat_rate_pct`` adds VAT to the value (the value with VAT), ``round_to``
+    rounds every item (1000), and the total is the sum of the rounded items.
+    """
+
+    if not items:
+        raise ValueError("items must contain at least one machine")
+    common = list(common_steps or [])
+    defaults = {
+        "physical_depreciation_pct": physical_depreciation_pct,
+        "functional_depreciation_pct": functional_depreciation_pct,
+        "external_depreciation_pct": external_depreciation_pct,
+    }
+    step = None if round_to is None else _positive("round_to", round_to)
+    vat = None if vat_rate_pct is None else _number("vat_rate_pct", vat_rate_pct)
+    if vat is not None and vat < 0:
+        raise ValueError("vat_rate_pct must be non-negative")
+    results: List[Dict[str, Any]] = []
+    total = total_rounded = 0.0
+    used_wear = []
+    for index, item in enumerate(items):
+        prefix = f"items[{index}]"
+        if not isinstance(item, Mapping) or not isinstance(item.get("name"), str) or not item["name"].strip():
+            raise ValueError(f"{prefix} must be an object with a non-empty name")
+        price = _positive(f"{prefix}.new_price", item.get("new_price"))
+        own = item.get("steps") or []
+        if not isinstance(own, Sequence) or isinstance(own, (str, bytes)):
+            raise ValueError(f"{prefix}.steps must be a list")
+        chain = apply_adjustments(price, list(own) + common, prefix)
+        cost = chain["adjusted_price"]
+        wear = {}
+        for key, default in defaults.items():
+            value = item.get(key, default)
+            if value is None:
+                raise ValueError(f"{prefix}.{key} is required (or give it for all items)")
+            wear[key] = _depreciation_pct(f"{prefix}.{key}", value)
+        remaining = 1.0
+        for value in wear.values():
+            remaining *= 1 - value / 100
+        value = cost * remaining
+        with_vat = None if vat is None else value * (1 + vat / 100)
+        final = with_vat if with_vat is not None else value
+        rounded = _rounded(final, step)
+        total += final
+        total_rounded += rounded
+        used_wear.append(tuple(wear.values()))
+        results.append({
+            "index": index + 1,
+            "name": item["name"].strip(),
+            "new_price": money(price),
+            "steps": chain["adjustments"],
+            "replacement_cost": money(cost),
+            **wear,
+            "total_depreciation_pct": round((1 - remaining) * 100, 4),
+            "value": money(value),
+            "value_with_vat": None if with_vat is None else money(with_vat),
+            "value_rounded": money(rounded),
+            **observation_fields(item, prefix),
+        })
+    guardrails = []
+    if len(results) > 1 and len(set(used_wear)) == 1:
+        guardrails.append(
+            "Износ одинаков у всех позиций: обоснуйте его по каждой (год выпуска, тип, состояние) "
+            "или задайте по позициям."
+        )
+    return {
+        "currency": currency.strip().upper() if isinstance(currency, str) and currency.strip() else "RUB",
+        "items": results,
+        "total_value": money(total),
+        "total_rounded": money(total_rounded),
+        "round_to": step,
+        "vat_rate_pct": vat,
+        "guardrails": guardrails,
+        "checks": observation_checks(results),
+    }
+
+
+@method_card(
+    "SET_PRICE_SPLIT",
+    "ФСО №10, п. 14",
+    "Ц_i = Ц_комплекта × Б_i / Σ Б_j (Б — базовые цены: договор, прайс)",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
+)
+def split_set_price(
+    set_price: float, base_prices: Mapping[str, float], base_source: Optional[str] = None
+) -> Dict[str, Any]:
+    """Split the price of a set over its items in proportion to their base
+    prices (an earlier contract, a price list) — a quote for the whole set."""
+
+    total = _positive("set_price", set_price)
+    if not isinstance(base_prices, Mapping) or not base_prices:
+        raise ValueError("base_prices must name at least one item")
+    bases = {str(name): _positive(f"base_prices[{name}]", value) for name, value in base_prices.items()}
+    base_total = sum(bases.values())
+    return {
+        "set_price": money(total),
+        "base_source": base_source,
+        "items": [
+            {"name": name, "base_price": money(base), "share_pct": round(base / base_total * 100, 4),
+             "price": money(total * base / base_total)}
+            for name, base in bases.items()
+        ],
+        "guardrails": [] if base_source else [
+            "Назовите источник базовых цен (base_source): договор, прайс-лист и его дату."
+        ],
+    }
+
+
+@method_card(
+    "NEW_PRICE_MEAN",
+    "ФСО №10, п. 14; ФСО V",
+    "Ц = Σ Ц_i / n",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-v/",
+)
+def mean_new_price(quotes: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
+    """The mean of several prices of a new item (offers, price lists) with
+    their sources; the spread is shown."""
+
+    if not quotes:
+        raise ValueError("quotes must contain at least one price")
+    rows = []
+    for index, quote in enumerate(quotes):
+        prefix = f"quotes[{index}]"
+        if not isinstance(quote, Mapping):
+            raise ValueError(f"{prefix} must be an object")
+        rows.append({"index": index + 1, "price": money(_positive(f"{prefix}.price", quote.get("price"))),
+                     **observation_fields(quote, prefix)})
+    prices = [row["price"] for row in rows]
+    mean = sum(prices) / len(prices)
+    spread = (max(prices) - min(prices)) / min(prices) * 100
+    return {
+        "quotes": rows,
+        "mean_price": money(mean),
+        "spread_pct": round(spread, 2),
+        "guardrails": [
+            f"Цены нового различаются на {round(spread, 1)} %: проверьте, что это одна модель и комплектация."
+        ] if spread > 20 else [],
+        "checks": observation_checks(rows),
+    }
+

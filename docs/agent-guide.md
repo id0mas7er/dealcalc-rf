@@ -256,6 +256,11 @@ adjustments}`. Шаги `adjustments`: `{"name", "type": "pct", "value": -5}`
 моделей («Лада» и «LADA», «Солярис» и «Solaris») сопоставляются
 автоматически; дополнительные — `synonyms` или `synonyms_file`.
 
+**Машины и оборудование, затратный.** `rf_machinery_cost_approach`: позиции с ценой нового
+и своими шагами (курс, индекс, монтаж), общие шаги (торг, доставка, без НДС,
+вторичный рынок), износы; цена комплекта — `rf_split_set_price`, несколько цен
+нового — `rf_mean_new_price`.
+
 **Машины и оборудование.** `rf_braking_coefficient` по двум аналогам →
 шаг `param` в корректировках; `rf_chain_index` и `rf_index_price`;
 `rf_physical_depreciation`; `rf_cost_from_price` и `rf_price_from_cost` (НДС,

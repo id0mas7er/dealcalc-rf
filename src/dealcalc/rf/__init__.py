@@ -44,6 +44,8 @@ from .machinery import (
     chain_index,
     cost_from_price,
     index_price,
+    machinery_cost_approach,
+    mean_new_price,
     new_equivalent_price,
     parameter_unit_price,
     physical_depreciation,
@@ -51,6 +53,7 @@ from .machinery import (
     qualitative_adjustments,
     residual_value,
     scrap_value,
+    split_set_price,
 )
 from .special import (
     cellular_site_rent,
@@ -108,6 +111,9 @@ __all__ = [
     "physical_depreciation",
     "scrap_value",
     "residual_value",
+    "machinery_cost_approach",
+    "split_set_price",
+    "mean_new_price",
     "cost_from_price",
     "price_from_cost",
     "qualitative_adjustments",
