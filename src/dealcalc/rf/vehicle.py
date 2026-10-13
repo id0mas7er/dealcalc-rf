@@ -190,7 +190,7 @@ def _weighted_median(items: Sequence[tuple[float, float]]) -> float:
 @method_card(
     "VEHICLE_COMPARATIVE",
     "ФСО V; ФСО №10, п. 13",
-    "P_adj = P_0 с последовательными поправками; V = взвешенная медиана P_adj",
+    "P_adj = P_0 с последовательными поправками; V = взвешенная медиана P_adj (statistic=weighted_mean — взвешенное среднее)",
     FORMULA_TECHNICAL,
     source_url="https://srosovet.ru/activities/npa/fso-10/",
 )
@@ -204,6 +204,7 @@ def vehicle_comparative_approach(
     match: str = "exact",
     synonyms: Optional[Mapping[str, Sequence[str]]] = None,
     synonyms_file: Optional[str] = None,
+    statistic: str = "weighted_median",
 ) -> Dict[str, Any]:
     """Estimate a vehicle from matched, adjusted comparable listings.
 
@@ -233,6 +234,8 @@ def vehicle_comparative_approach(
     interpolation: the first price, in ascending order, whose cumulative
     weight reaches half of the total. With an even split it is the lower
     median — of two analogs with equal weights, the cheaper one.
+    ``statistic="weighted_mean"`` takes the weighted mean instead, as most
+    reports do; both are always in the result. The choice is the appraiser's.
 
     Brands and models are matched through the package dictionary
     ``vehicle_synonyms.json`` and transliteration. ``synonyms``
@@ -259,6 +262,8 @@ def vehicle_comparative_approach(
         raise ValueError("subject.mileage_km must be non-negative")
     if _year_error(subject_year):
         raise ValueError(f"subject.year {subject_year:g} is not a plausible year of manufacture")
+    if statistic not in ("weighted_median", "weighted_mean"):
+        raise ValueError("statistic must be 'weighted_median' or 'weighted_mean'")
     if match not in ("exact", "contains"):
         raise ValueError("match must be 'exact' or 'contains'")
     if synonyms is not None and not isinstance(synonyms, Mapping):
@@ -357,6 +362,7 @@ def vehicle_comparative_approach(
             "net_adjustment_pct": adjusted["net_adjustment_pct"],
             "gross_adjustment_pct": adjusted["gross_adjustment_pct"],
             "adjustments_count": adjusted["adjustments_count"],
+            "sum_abs_adjustments_pct": round(adjusted["weights_sum_abs_pct"], 4),
             "adjusted_price_rub": money(adjusted_price),
             "weight": round(weight, 6),
         }
@@ -429,7 +435,8 @@ def vehicle_comparative_approach(
         "weighting_formula": WEIGHTING_FORMULAS[weighting],
         "weighted_median_price": money(median),
         "weighted_mean_price": money(weighted_mean),
-        "indicated_value": money(median),
+        "statistic": statistic,
+        "indicated_value": money(weighted_mean if statistic == "weighted_mean" else median),
         # The spread of analogs, not an interval of value.
         "analogs_spread": {
             "low": money(min(adjusted_prices)),

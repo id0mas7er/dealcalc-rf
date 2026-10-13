@@ -11,6 +11,7 @@ from __future__ import annotations
 import functools
 import inspect
 import math
+import re
 from datetime import date, datetime
 from collections.abc import Mapping
 from typing import Any, Callable, Dict, List, Optional, Sequence
@@ -282,6 +283,38 @@ def _analog_vat_checks(context: Mapping[str, Any], result: Mapping[str, Any]) ->
                 f"«{context['vat_label']}»: приведите цены к базе задания."
             )
     return checks
+
+
+def _land_vat_guardrails(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[str]:
+    """Land is not subject to VAT (НК РФ, ст. 146, п. 2, пп. 6) — разбор 108/25-ю."""
+
+    land = result.get("land_value")
+    if context.get("vat") != "included" or not isinstance(land, (int, float)) or land <= 0:
+        return []
+    return [
+        "В стоимость входит земельный участок: его реализация НДС не облагается "
+        "(НК РФ, ст. 146, п. 2, пп. 6) — НДС «в т.ч.» выделяйте только с улучшений."
+    ]
+
+
+_FX_WORDS = re.compile(r"курс|валют|usd|eur|доллар|евро", re.IGNORECASE)
+
+
+def _fx_guardrails(result: Mapping[str, Any]) -> List[str]:
+    """A currency rate used as a price index (разбор отчётов 58/25-ю, ГНТТП, БМК)."""
+
+    names = [str(step.get("name", "")) for step in result.get("steps") or [] if isinstance(step, Mapping)]
+    for item in result.get("comparables") or []:
+        if isinstance(item, Mapping):
+            names += [str(step.get("name", "")) for step in item.get("adjustments") or [] if isinstance(step, Mapping)]
+    found = sorted({name for name in names if _FX_WORDS.search(name)})
+    if not found:
+        return []
+    return [
+        f"Шаги {found} — по курсу валюты. Пересчёт цены в валюте по курсу на дату оценки корректен; "
+        "для рублёвых цен и затрат отношение курсов — не индекс цен: обоснуйте его или примените "
+        "индекс цен (КО-ИНВЕСТ, Росстат)."
+    ]
 
 
 def _weighting_guardrails(result: Mapping[str, Any]) -> List[str]:
@@ -604,6 +637,7 @@ def method_card(
             conditions = list(result.pop("conditions", []))
             guardrails += offer_guardrails(result) + identifier_guardrails(result)
             guardrails += _weighting_guardrails(result)
+            guardrails += _land_vat_guardrails(assignment, result) + _fx_guardrails(result)
             guardrails += _stale_price_guardrails(assignment, result) + _city_guardrails(result)
             if context_reminder:
                 guardrails += _context_guardrails(assignment)

@@ -273,6 +273,10 @@ def apply_adjustments(
     price = base_price
     applied = []
     gross_change = 0.0
+    # Σ|поправок| как они записаны (−10 % и +20 % → 30), для правил весов по
+    # сумме поправок; шаги с exclude_from_weights (торг, одинаковый у всех
+    # аналогов) в неё не входят — так считают оценщики (разбор отчётов 13.10.2026).
+    weights_sum = 0.0
     group_base = None
     group_total = 0.0
     for number, step in enumerate(steps, start=1):
@@ -373,6 +377,16 @@ def apply_adjustments(
             raise ValueError(f"{name_prefix}: adjusted price must be greater than 0")
         change = new_price - price
         gross_change += abs(change)
+        exclude = step.get("exclude_from_weights", False)
+        if not isinstance(exclude, bool):
+            raise ValueError(f"{name_prefix}.exclude_from_weights must be true or false")
+        if exclude:
+            record["exclude_from_weights"] = True
+        else:
+            if kind in ("pct", "pct_group"):
+                weights_sum += abs(_finite(f"{name_prefix}.value", step.get("value")))
+            elif price:
+                weights_sum += abs(new_price / price - 1) * 100
         record.update(
             price_before=money(price),
             price_after=money(new_price),
@@ -411,6 +425,7 @@ def apply_adjustments(
         "gross_adjustment_pct": _share_pct(gross_change, base_price),
         # Unrounded, for the inverse_gross weight.
         "gross_adjustment_raw_pct": None if base_price == 0 else gross_change / base_price * 100,
+        "weights_sum_abs_pct": weights_sum,
     }
 
 
@@ -485,9 +500,19 @@ WEIGHTING_FORMULAS = {
         "K_i = (1 − S_i / Σ(S_j + 1)) / Σ_k (1 − S_k / Σ(S_j + 1)), S_i — общее количество "
         "корректировок аналога (методика 2)"
     ),
+    "sum_share": (
+        "K_i = (S − M_i) / ((N − 1) × S), M_i — сумма модулей корректировок аналога, % "
+        "(шаги с exclude_from_weights не входят), S = Σ M_i; при S = 0 веса равные"
+    ),
+    "sum_share_100": (
+        "K_i ∝ 1 − M_i / (Σ M_j + 100), M_i — сумма модулей корректировок аналога, %"
+    ),
+    "inverse_sum": "w_i ∝ 1 / M_i, M_i — сумма модулей корректировок аналога, %",
 }
 # Rules that need the whole sample: the weight of an analog depends on the others.
-SAMPLE_WEIGHTINGS = ("count_share", "count_share_2")
+SAMPLE_WEIGHTINGS = ("count_share", "count_share_2", "sum_share", "sum_share_100", "inverse_sum")
+# Rules by the sum of absolute adjustments (as the appraisers count it).
+SUM_WEIGHTINGS = ("sum_share", "sum_share_100", "inverse_sum")
 # Method 2 by the sum of adjustments was replaced by the count (0.13.0).
 _REMOVED_WEIGHTINGS = ("gross_share", "gross_share_fraction")
 
@@ -522,7 +547,10 @@ def sample_weights(adjusted: Sequence[Mapping[str, Any]], weighting: str) -> Opt
 
     ``count_share`` (method 1): ``K_i = (S − M_i) / ((N − 1) S)``;
     ``count_share_2`` (method 2): ``K_i ∝ 1 − S_i / Σ(S_j + 1)``; both by the
-    number of adjustments of an analog. All sum to 1.
+    number of adjustments of an analog. ``sum_share`` is method 1 and
+    ``sum_share_100`` is ``K_i ∝ 1 − M_i / (Σ M_j + 100)``, ``inverse_sum`` is
+    ``w_i ∝ 1 / M_i`` — by the sum of absolute adjustments in percent, as in
+    the reports of practising appraisers. All sum to 1.
     """
 
     if weighting not in SAMPLE_WEIGHTINGS:
@@ -530,6 +558,23 @@ def sample_weights(adjusted: Sequence[Mapping[str, Any]], weighting: str) -> Opt
     count = len(adjusted)
     if count == 1:
         return [1.0]
+    if weighting in SUM_WEIGHTINGS:
+        sums = [item["weights_sum_abs_pct"] for item in adjusted]
+        total = sum(sums)
+        if weighting == "sum_share":
+            if total == 0:
+                return [1 / count] * count
+            return [(total - value) / ((count - 1) * total) for value in sums]
+        if weighting == "sum_share_100":
+            raw = [1 - value / (total + 100) for value in sums]
+        else:
+            if any(value == 0 for value in sums):
+                raise ValueError(
+                    "weighting='inverse_sum': у аналога без корректировок вес 1/0 не определён — "
+                    "выберите другое правило"
+                )
+            raw = [1 / value for value in sums]
+        return [value / sum(raw) for value in raw]
     if weighting == "count_share":
         numbers = [item["adjustments_count"] for item in adjusted]
         total = sum(numbers)

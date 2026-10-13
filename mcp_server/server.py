@@ -35,6 +35,10 @@ DealCalc RF — расчёты для оценки в РФ (ФСО I–VI, №7,
    (range.mean; kind: confidence, если low/high — интервал среднего).
    Правило минимальной поправки (choice_rule: minimal) и каскад staged — только
    по решению оценщика; поправка больше 30 % — проверить сопоставимость аналога.
+   Веса аналогов — правилом, которое назвал оценщик (sum_share, sum_share_100,
+   inverse_sum, count_share …), или manual с его весами; не выбирать самому.
+   Земля НДС не облагается (НК РФ, ст. 146, п. 2, пп. 6): для участка vat =
+   not_applicable, в ЕОН НДС выделяется только со стоимости улучшений.
 5. Согласование — rf_reconcile_approaches с весами оценщика; существенное
    расхождение подходов — более 30 % по умолчанию, другой порог — только по
    указанию оценщика. Если согласование не завершено, reconciled_value = null:
@@ -215,7 +219,10 @@ def rf_comparative_approach(
     минимальной поправки (до 30 % — среднее, больше — минимальная поправка в интервале);
     отступление и поправка больше 30 % — замечание. Скидку на торг ставьте первой. weighting: manual | inverse_gross |
     inverse_count | count_share (методика 1: K = (S − M)/((N − 1)·S)) | count_share_2
-    (методика 2: K ∝ 1 − S_i/Σ(S_j + 1)); в обеих — число корректировок аналога.
+    (методика 2: K ∝ 1 − S_i/Σ(S_j + 1)); в обеих — число корректировок аналога |
+    sum_share (методика 1 по сумме модулей корректировок M_i, %) | sum_share_100
+    (K ∝ 1 − M_i/(ΣM + 100)) | inverse_sum (w ∝ 1/M_i). Шаг с exclude_from_weights: true
+    (обычно торг) в M_i не входит; M_i аналога — sum_abs_adjustments_pct.
     Показываются все шаги, валовая и итоговая корректировки, коэффициент вариации (33%)."""
     return rf.comparative_approach(subject_area_sqm, comparables, currency, weighting, context=context)
 
@@ -573,16 +580,19 @@ def rf_vehicle_comparative_approach(
     match: str = "exact",
     synonyms: Optional[dict] = None,
     synonyms_file: Optional[str] = None,
+    statistic: str = "weighted_median",
     context: Optional[dict] = None,
 ) -> dict:
-    """Сравнительный подход для автомобиля (ФСО V; ФСО №10, п. 13): итог — взвешенная медиана.
+    """Сравнительный подход для автомобиля (ФСО V; ФСО №10, п. 13): итог — взвешенная медиана или среднее.
 
     Подбор по марке и модели по словарю пакета (ВАЗ/Lada/Лада, Солярис/Solaris,
     X-Trail/X Trail) и транслитерации; match: exact | contains (Vesta → Vesta SW Cross);
     synonyms: {каноническое имя: [написания]} — для марок и моделей; synonyms_file —
     локальный JSON {"brands": {...}, "models": {...}}. Ограничения по году и пробегу задаёт оценщик
     (умолчаний нет). adjustments — как в rf_comparative_approach, abs — в рублях;
-    weighting: manual | inverse_gross | inverse_count | count_share | count_share_2."""
+    weighting: manual | inverse_gross | inverse_count | count_share | count_share_2 | sum_share |
+    sum_share_100 | inverse_sum (как в rf_comparative_approach). statistic: weighted_median
+    (по умолчанию) | weighted_mean — выбирает оценщик; в результате есть обе величины."""
     return rf.vehicle_comparative_approach(
         subject,
         comparables,
@@ -593,6 +603,7 @@ def rf_vehicle_comparative_approach(
         match,
         synonyms,
         synonyms_file,
+        statistic,
         context=context,
     )
 
