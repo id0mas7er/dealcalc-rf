@@ -408,9 +408,17 @@ def rf_discount_rate_build_up(
     """Ставка дисконтирования методом кумулятивного построения: безрисковая ставка + Σ премий.
 
     premiums: {"name", "value", "source"} — риск вложения, низкая ликвидность (срок
-    экспозиции), инвестиционный менеджмент и др. Источник безрисковой ставки (ОФЗ на
-    дату оценки) и премий обязателен — иначе замечание."""
+    экспозиции), инвестиционный менеджмент и др.; {"name", "exposure_months"} — премия за
+    ликвидность r_f × T/12; {"name", "scores": [...]} — среднее баллов факторов риска; формула
+    показывается. Источник безрисковой ставки (ОФЗ на дату оценки) и премий обязателен —
+    иначе замечание."""
     return rf.discount_rate_build_up(risk_free_rate_pct, premiums, risk_free_source, context=context)
+
+
+@tool
+def rf_weights_from_scores(scores: dict, context: Optional[dict] = None) -> dict:
+    """Веса подходов по баллам оценщика: w = b / Σ b ({подход: балл}) — для rf_reconcile_approaches."""
+    return rf.weights_from_scores(scores, context=context)
 
 
 @tool
@@ -989,6 +997,24 @@ def rf_deferred_tax_effect(
 
 
 @tool
+def rf_balance_items_present_value(items: List[dict], currency: str = "RUB", context: Optional[dict] = None) -> dict:
+    """Статьи баланса по рыночной стоимости (метод чистых активов, ФСО №8): V = B / (1 + r)^t.
+
+    items: {name, side: asset | liability, book_value, years — срок оборачиваемости или
+    погашения, rate_pct — ставка ЦБ на дату оценки (депозиты для активов, кредиты для
+    обязательств), rate_source}. Итоги — для rf_net_assets."""
+    return rf.balance_items_present_value(items, currency, context=context)
+
+
+@tool
+def rf_scoring_discount(factors: List[dict], justification: Optional[str] = None,
+                        context: Optional[dict] = None) -> dict:
+    """Скидка балльным методом (ликвидность, контроль): d = Σ баллов / n; factors [{name, score}].
+    Экспертная оценка, а не рыночные данные — нужен justification."""
+    return rf.scoring_discount(factors, justification, context=context)
+
+
+@tool
 def rf_business_interest_value(
     value_100pct: float,
     share_pct: float,
@@ -1111,6 +1137,16 @@ def rf_external_obsolescence_paired_sales(
         confirmed_conditions=confirmed_conditions,
         context=context,
     )
+
+
+@tool
+def rf_external_obsolescence_wages(
+    regional_wage: float, national_wage: float, industry_wage: float, source: Optional[str] = None,
+    context: Optional[dict] = None,
+) -> dict:
+    """Внешний износ «по зарплатам» (Карцев): И = 1 − (ЗП региона / ЗП РФ) × (ЗП отрасли / ЗП РФ).
+    Упрощённый метод — допущение отчёта, раскрыть и проверить по каждому зданию."""
+    return rf.external_obsolescence_wages(regional_wage, national_wage, industry_wage, source, context=context)
 
 
 @tool

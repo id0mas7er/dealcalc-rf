@@ -629,3 +629,109 @@ def business_interest_value(
         ),
         "checks": checks,
     }
+
+
+@method_card(
+    "BALANCE_ITEMS_PRESENT_VALUE",
+    "ФСО №8, п. 11 (затратный подход: метод чистых активов)",
+    "V_i = B_i / (1 + r_i)^(t_i); ЧА = Σ V_активов − Σ V_обязательств",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso8/",
+)
+def balance_items_present_value(items: Sequence[Mapping[str, Any]], currency: str = "RUB") -> Dict[str, Any]:
+    """Market value of balance-sheet items by discounting over the period of
+    turnover or repayment: ``V = B / (1 + r) ** t``.
+
+    Each item is ``{"name", "side": "asset" | "liability", "book_value",
+    "years", "rate_pct", "rate_source"}`` — receivables, inventories,
+    financial investments, loans, payables; ``years`` — the period of
+    turnover or repayment, ``rate_pct`` — the rate of deposits (assets) or
+    loans (liabilities) on the valuation date. The totals go to
+    :func:`net_assets`.
+    """
+
+    if not items:
+        raise ValueError("items must contain at least one balance-sheet item")
+    rows = []
+    totals = {"asset": [0.0, 0.0], "liability": [0.0, 0.0]}
+    no_source = []
+    for index, item in enumerate(items):
+        prefix = f"items[{index}]"
+        if not isinstance(item, Mapping) or not isinstance(item.get("name"), str) or not item["name"].strip():
+            raise ValueError(f"{prefix} must be an object with a non-empty name")
+        side = item.get("side")
+        if side not in totals:
+            raise ValueError(f"{prefix}.side must be 'asset' or 'liability'")
+        book = _number(f"{prefix}.book_value", item.get("book_value"))
+        years = _number(f"{prefix}.years", item.get("years"))
+        rate = _number(f"{prefix}.rate_pct", item.get("rate_pct"))
+        if book < 0 or years < 0:
+            raise ValueError(f"{prefix}: book_value and years must be non-negative")
+        if rate <= -100:
+            raise ValueError(f"{prefix}.rate_pct must be greater than -100")
+        factor = 1 / (1 + rate / 100) ** years
+        value = book * factor
+        totals[side][0] += book
+        totals[side][1] += value
+        if not item.get("rate_source"):
+            no_source.append(item["name"].strip())
+        rows.append({"name": item["name"].strip(), "side": side, "book_value": money(book), "years": years,
+                     "rate_pct": rate, "rate_source": item.get("rate_source"), "factor": round(factor, 5),
+                     "value": money(value)})
+    return {
+        "currency": currency.strip().upper() if isinstance(currency, str) and currency.strip() else "RUB",
+        "items": rows,
+        "assets_book": money(totals["asset"][0]),
+        "assets_value": money(totals["asset"][1]),
+        "liabilities_book": money(totals["liability"][0]),
+        "liabilities_value": money(totals["liability"][1]),
+        "net_value": money(totals["asset"][1] - totals["liability"][1]),
+        "checks": [f"Не указан источник ставки (rate_source): {no_source}."] if no_source else [],
+        "guardrails": [
+            "Срок оборачиваемости или погашения — по данным баланса и договоров; ставка — ЦБ на дату оценки "
+            "(депозиты для активов, кредиты для обязательств). Статьи без анализа (прочие активы) — отдельно."
+        ],
+    }
+
+
+@method_card(
+    "SCORING_DISCOUNT",
+    "ФСО №8, п. 11; экспертный балльный метод",
+    "d = Σ s_i / n (s_i — оценка фактора, %)",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso8/",
+)
+def scoring_discount(factors: Sequence[Mapping[str, Any]], justification: Optional[str] = None) -> Dict[str, Any]:
+    """A discount (for liquidity, for lack of control) by the scoring method:
+    the mean of the levels the appraiser gives to the factors.
+
+    ``factors`` — ``[{"name", "score"}]`` (for instance 0, 10, 20, 30 or
+    40 %). The result is an expert judgment, not market data: it must be
+    supported (``justification``).
+    """
+
+    if not factors:
+        raise ValueError("factors must contain at least one factor")
+    rows = []
+    for index, factor in enumerate(factors):
+        prefix = f"factors[{index}]"
+        if not isinstance(factor, Mapping) or not isinstance(factor.get("name"), str) or not factor["name"].strip():
+            raise ValueError(f"{prefix} must be an object with a non-empty name")
+        score = _number(f"{prefix}.score", factor.get("score"))
+        if not 0 <= score <= 100:
+            raise ValueError(f"{prefix}.score must be in [0, 100]")
+        rows.append({"name": factor["name"].strip(), "score": score})
+    total = sum(row["score"] for row in rows)
+    note = justification.strip() if isinstance(justification, str) and justification.strip() else None
+    return {
+        "factors": rows,
+        "scores_total": money(total),
+        "discount_pct": round(total / len(rows), 4),
+        "formula": f"{money(total)} / {len(rows)}",
+        "justification": note,
+        "guardrails": [
+            "Балльная скидка — экспертная оценка, а не рыночные данные: обоснуйте баллы факторов и сравните "
+            "с рыночными исследованиями скидок. Метод чистых активов уже даёт стоимость контрольного пакета — "
+            "скидка к 100 % пакету требует отдельного обоснования."
+        ] if note is None else [],
+    }

@@ -18,6 +18,7 @@ from .real_estate import (
     item_comparative_approach,
     net_operating_income,
     reconcile_approaches,
+    weights_from_scores,
 )
 from .data import deduplicate_listings, load_listings, normalize_listing, read_listings
 from .assignment import check_assignment
@@ -30,6 +31,8 @@ from .business import (
     deferred_tax_effect,
     business_liquidation_value,
     net_assets,
+    balance_items_present_value,
+    scoring_discount,
 )
 from .investment import (
     asset_liquidation_value,
@@ -62,6 +65,7 @@ from .special import (
     external_obsolescence_cost_income,
     external_obsolescence_lost_income,
     external_obsolescence_paired_sales,
+    external_obsolescence_wages,
     fund_unit_value,
     market_rent_cost_plus,
 )
@@ -72,6 +76,10 @@ __all__ = [
     "allocate_value",
     "cost_approach",
     "item_comparative_approach",
+    "weights_from_scores",
+    "balance_items_present_value",
+    "scoring_discount",
+    "external_obsolescence_wages",
     "land_sufficiency",
     "indexed_replacement_cost",
     "dcf_valuation",

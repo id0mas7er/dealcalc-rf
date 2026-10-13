@@ -14,7 +14,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
 from ._adjustments import money
-from ._meta import FORMULA_RECOMMENDATION, method_card
+from ._meta import FORMULA_RECOMMENDATION, FORMULA_TECHNICAL, method_card
 
 FORMULA_ENGINEERING = (
     "инженерная запись приёма рекомендации; формулы источника даны изображениями"
@@ -464,4 +464,36 @@ def fund_unit_value(
             "Сравнительный подход — только при сделках с паями того же фонда.",
         ],
         "checks": checks,
+    }
+
+
+@method_card(
+    "EXTERNAL_OBSOLESCENCE_WAGES",
+    "ФСО V; ФСО №7, п. 24 (затратный подход: внешний износ)",
+    "И_вн = 1 − (ЗП_региона / ЗП_РФ) × (ЗП_отрасли / ЗП_РФ)",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
+)
+def external_obsolescence_wages(
+    regional_wage: float, national_wage: float, industry_wage: float, source: Optional[str] = None
+) -> Dict[str, Any]:
+    """External obsolescence by wages (the method of Kartsev): the lower the
+    regional and industry wages against the national level, the larger the
+    obsolescence. A simplified, conditional method — an assumption of the
+    report that must be disclosed."""
+
+    regional = _positive("regional_wage", regional_wage)
+    national = _positive("national_wage", national_wage)
+    industry = _positive("industry_wage", industry_wage)
+    product = regional / national * industry / national
+    obsolescence = max(0.0, 1 - product) * 100
+    return {
+        "regional_ratio": round(regional / national, 4),
+        "industry_ratio": round(industry / national, 4),
+        "external_obsolescence_pct": round(obsolescence, 2),
+        "source": source,
+        "guardrails": [
+            "Внешний износ «по зарплатам» — упрощённый метод: раскройте его как допущение, проверьте "
+            "применимость к каждому зданию и сравните с методами по доходу или парным продажам."
+        ] + ([] if source else ["Укажите источник данных о зарплатах (Росстат) и дату."]),
     }

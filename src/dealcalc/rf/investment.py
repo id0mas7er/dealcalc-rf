@@ -256,7 +256,7 @@ def asset_liquidation_value(
     }
 
 
-def _named_premiums(premiums: Any) -> List[Dict[str, Any]]:
+def _named_premiums(premiums: Any, risk_free: Optional[float] = None) -> List[Dict[str, Any]]:
     if isinstance(premiums, (str, bytes)) or not isinstance(premiums, Sequence):
         raise ValueError("premiums must be a list")
     result = []
@@ -267,8 +267,27 @@ def _named_premiums(premiums: Any) -> List[Dict[str, Any]]:
         name = premium.get("name")
         if not isinstance(name, str) or not name.strip():
             raise ValueError(f"{prefix}.name must be a non-empty string")
-        value = _flows([premium.get("value")])[0]
-        item: Dict[str, Any] = {"name": name.strip(), "value_pct": value}
+        item: Dict[str, Any] = {"name": name.strip()}
+        if premium.get("exposure_months") is not None:
+            # Премия за низкую ликвидность: безрисковая ставка за срок экспозиции.
+            if risk_free is None:
+                raise ValueError(f"{prefix}.exposure_months needs the risk-free rate")
+            months = _flows([premium["exposure_months"]])[0]
+            if months < 0:
+                raise ValueError(f"{prefix}.exposure_months must be non-negative")
+            value = risk_free * months / 12
+            item.update(exposure_months=months, formula=f"{money(risk_free)} × {money(months)} / 12")
+        elif premium.get("scores") is not None:
+            # Балльный метод: среднее баллов факторов риска.
+            scores = premium["scores"]
+            if isinstance(scores, (str, bytes)) or not isinstance(scores, Sequence) or not scores:
+                raise ValueError(f"{prefix}.scores must be a non-empty list of numbers")
+            numbers = [_flows([score])[0] for score in scores]
+            value = sum(numbers) / len(numbers)
+            item.update(scores=numbers, formula=f"{money(sum(numbers))} / {len(numbers)}")
+        else:
+            value = _flows([premium.get("value")])[0]
+        item["value_pct"] = value
         if premium.get("source"):
             item["source"] = str(premium["source"])
         result.append(item)
@@ -293,11 +312,13 @@ def discount_rate_build_up(
     ``Y = risk-free rate + Σ premiums``; each premium is ``{"name",
     "value", "source"}`` (e.g. risk of investment, low liquidity through the
     exposure period, investment management). Every component and its source
-    come from the appraiser.
+    come from the appraiser. A premium with ``exposure_months`` is the
+    premium for low liquidity ``r_f × T / 12``; with ``scores`` — the mean of
+    the scores of risk factors (a scoring method); the formula is shown.
     """
 
     free = _rate("risk_free_rate_pct", risk_free_rate_pct)
-    items = _named_premiums(premiums)
+    items = _named_premiums(premiums, free)
     total = free + sum(item["value_pct"] for item in items)
     checks = []
     if not risk_free_source:

@@ -1228,3 +1228,27 @@ def allocate_value(
         ] if difference else [],
     }
 
+
+@method_card(
+    "WEIGHTS_FROM_SCORES",
+    "ФСО V, п. 3",
+    "w_i = b_i / Σ b_j (b — баллы подхода)",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-v/",
+    context_reminder=False,
+)
+def weights_from_scores(scores: Mapping[str, float]) -> Dict[str, Any]:
+    """Weights of approaches from the appraiser's scores (``{approach:
+    score}``): ``w = b / Σ b`` — for :func:`reconcile_approaches`."""
+
+    if not isinstance(scores, Mapping) or not scores:
+        raise ValueError("scores must name at least one approach")
+    values = {str(name): _non_negative(f"scores[{name}]", value) for name, value in scores.items()}
+    total = sum(values.values())
+    if total <= 0:
+        raise ValueError("scores must not all be zero")
+    return {
+        "scores": {name: _round(value) for name, value in values.items()},
+        "weights": {name: round(value / total, 6) for name, value in values.items()},
+        "guardrails": ["Баллы подходов — суждение оценщика: раскройте критерии и оценки по каждому."],
+    }

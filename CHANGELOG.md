@@ -1,5 +1,20 @@
 # Изменения
 
+## 0.20.0 — 2026-10-13
+
+По разбору отчётов оценщиков 13.10.2026 (R20, R22, R24, R25).
+
+- `balance_items_present_value` — статьи баланса по рыночной стоимости
+  `B / (1 + r)^t` (отчёт ТПЭ2024).
+- `scoring_discount` — скидка балльным методом (отчёт МПРГ2023: 23,75 %),
+  `weights_from_scores` — веса подходов по баллам (отчёт РСХБ: 0,8 / 0,2).
+- `discount_rate_build_up`: премия за ликвидность `r_f × T / 12`
+  (`exposure_months`) и премия по баллам (`scores`) с формулой в результате;
+  отчёт РСХБ — 24,34 %.
+- `external_obsolescence_wages` — внешний износ «по зарплатам» (41,48 %).
+- MCP: `rf_balance_items_present_value`, `rf_scoring_discount`,
+  `rf_weights_from_scores`, `rf_external_obsolescence_wages`.
+
 ## 0.19.0 — 2026-10-13
 
 По разбору отчётов оценщиков 13.10.2026 (R11).
