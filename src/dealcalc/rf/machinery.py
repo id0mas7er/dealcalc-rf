@@ -751,3 +751,124 @@ def mean_new_price(quotes: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         "checks": observation_checks(rows),
     }
 
+
+def _capped(value: float) -> tuple:
+    return min(max(value, 0.0), 100.0), value > 100 or value < 0
+
+
+@method_card(
+    "VEHICLE_WEAR_RD37",
+    "ФСО №10; РД 37.009.015-98 (в редакции расчёта отчётов: износ по возрасту и перепробегу)",
+    "И = (И_2 × Д_ф + И_1 × (П_ф − П_с × Д_ф)) × А_3",
+    FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-10/",
+    context_reminder=False,
+)
+def vehicle_wear_rd37(
+    age_years: float,
+    mileage_thousand_km: float,
+    age_rate_pct: float,
+    overrun_rate_pct: float,
+    standard_mileage_thousand_per_year: float,
+    region_coef: float = 1,
+) -> Dict[str, Any]:
+    """Physical wear of a vehicle by age and over-mileage: ``И_2`` — % per
+    year of age, ``И_1`` — % per 1000 km of mileage above the standard
+    ``П_с × Д_ф``, ``А_3`` — the coefficient of the region. The normatives
+    come from the document (the table by type of vehicle) — inputs of the
+    appraiser. The result is limited to [0; 100] %."""
+
+    age = _non_negative("age_years", age_years)
+    mileage = _non_negative("mileage_thousand_km", mileage_thousand_km)
+    by_age = _non_negative("age_rate_pct", age_rate_pct) * age
+    overrun = mileage - _non_negative("standard_mileage_thousand_per_year", standard_mileage_thousand_per_year) * age
+    by_mileage = _non_negative("overrun_rate_pct", overrun_rate_pct) * overrun
+    region = _positive("region_coef", region_coef)
+    raw = (by_age + by_mileage) * region
+    total, capped = _capped(raw)
+    return {
+        "by_age_pct": money(by_age),
+        "overrun_thousand_km": money(overrun),
+        "by_mileage_pct": money(by_mileage),
+        "region_coef": region,
+        "wear_pct": money(total),
+        "capped": capped,
+        "checks": [f"Расчётный износ {money(raw)} % вне [0; 100] и ограничен."] if capped else [],
+        "guardrails": ["Нормативы И_1, И_2, П_с и А_3 — по таблицам документа для типа ТС и региона: укажите источник."],
+    }
+
+
+@method_card(
+    "VEHICLE_WEAR_EXPONENTIAL",
+    "ФСО №10; Методические рекомендации (Минюст, 2018), экспоненциальная модель",
+    "И = 100 × (1 − e^−(Δ × Т + Е × L))",
+    FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-10/",
+    context_reminder=False,
+)
+def vehicle_wear_exponential(
+    age_years: float, mileage_thousand_km: float, age_coef: float, mileage_coef: float
+) -> Dict[str, Any]:
+    """Physical wear by the exponential model: ``Δ`` — the coefficient of
+    age (per year), ``Е`` — of mileage (per 1000 km), from the table of the
+    method for the type of vehicle."""
+
+    age = _non_negative("age_years", age_years)
+    mileage = _non_negative("mileage_thousand_km", mileage_thousand_km)
+    omega = _non_negative("age_coef", age_coef) * age + _non_negative("mileage_coef", mileage_coef) * mileage
+    return {
+        "omega": round(omega, 6),
+        "wear_pct": money(100 * (1 - math.exp(-omega))),
+        "guardrails": ["Коэффициенты Δ и Е — по таблице методики для типа ТС: укажите источник."],
+    }
+
+
+@method_card(
+    "WEAR_EFFECTIVE_LIFE",
+    "ФСО №10, п. 14 (д); метод срока жизни",
+    "И = Т_ф / (Т_ф + Т_ост)",
+    FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/content/editor/Articles/Kozlov_V_Frolov_I_Ocenka_MiO_20101.pdf",
+    context_reminder=False,
+)
+def wear_effective_life(actual_age_years: float, remaining_life_years: float) -> Dict[str, Any]:
+    """Physical wear by the effective-life method: the actual (effective)
+    age against the whole life, the remaining life from an inspection or an
+    expert review of industrial safety (ЭПБ)."""
+
+    age = _non_negative("actual_age_years", actual_age_years)
+    remaining = _non_negative("remaining_life_years", remaining_life_years)
+    if age + remaining == 0:
+        raise ValueError("actual_age_years and remaining_life_years must not both be 0")
+    return {
+        "actual_age_years": age,
+        "remaining_life_years": remaining,
+        "wear_pct": money(age / (age + remaining) * 100),
+        "guardrails": [
+            "Остаточный срок — по каждой группе оборудования (ЭПБ, обследование): срок одного агрегата "
+            "не переносится на всё оборудование."
+        ],
+    }
+
+
+@method_card(
+    "TIRE_WEAR",
+    "ФСО №10; износ шин по остаточной высоте протектора",
+    "И = (Г_н − Г_ф) / (Г_н − Г_д)",
+    FORMULA_METHODICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-10/",
+    context_reminder=False,
+)
+def tire_wear(new_tread_mm: float, actual_tread_mm: float, min_tread_mm: float) -> Dict[str, Any]:
+    """Wear of tyres by the tread depth: new, actual and the minimum allowed."""
+
+    new = _positive("new_tread_mm", new_tread_mm)
+    actual = _non_negative("actual_tread_mm", actual_tread_mm)
+    minimum = _non_negative("min_tread_mm", min_tread_mm)
+    if minimum >= new:
+        raise ValueError("min_tread_mm must be less than new_tread_mm")
+    raw = (new - actual) / (new - minimum) * 100
+    total, capped = _capped(raw)
+    return {"wear_pct": round(total, 4), "capped": capped,
+            "checks": [f"Износ {round(raw, 2)} % вне [0; 100]: проверьте высоты протектора."] if capped else []}
+

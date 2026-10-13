@@ -797,6 +797,47 @@ def rf_residual_value(
 
 
 @tool
+def rf_vehicle_wear_rd37(
+    age_years: float,
+    mileage_thousand_km: float,
+    age_rate_pct: float,
+    overrun_rate_pct: float,
+    standard_mileage_thousand_per_year: float,
+    region_coef: float = 1,
+    context: Optional[dict] = None,
+) -> dict:
+    """Физический износ ТС по РД 37.009.015-98 (возраст и перепробег):
+    И = (И_2·Д_ф + И_1·(П_ф − П_с·Д_ф))·А_3; нормативы — по таблицам документа, от оценщика."""
+    return rf.vehicle_wear_rd37(age_years, mileage_thousand_km, age_rate_pct, overrun_rate_pct,
+                                standard_mileage_thousand_per_year, region_coef, context=context)
+
+
+@tool
+def rf_vehicle_wear_exponential(
+    age_years: float, mileage_thousand_km: float, age_coef: float, mileage_coef: float,
+    context: Optional[dict] = None,
+) -> dict:
+    """Физический износ ТС по экспоненциальной модели: И = 100·(1 − e^−(Δ·Т + Е·L)), Δ и Е — по
+    таблице методики для типа ТС."""
+    return rf.vehicle_wear_exponential(age_years, mileage_thousand_km, age_coef, mileage_coef, context=context)
+
+
+@tool
+def rf_wear_effective_life(actual_age_years: float, remaining_life_years: float,
+                           context: Optional[dict] = None) -> dict:
+    """Физический износ методом срока жизни: И = Т_ф / (Т_ф + Т_ост); остаточный срок — по ЭПБ или
+    обследованию, отдельно для каждой группы оборудования."""
+    return rf.wear_effective_life(actual_age_years, remaining_life_years, context=context)
+
+
+@tool
+def rf_tire_wear(new_tread_mm: float, actual_tread_mm: float, min_tread_mm: float,
+                 context: Optional[dict] = None) -> dict:
+    """Износ шин по высоте протектора: И = (Г_н − Г_ф) / (Г_н − Г_д)."""
+    return rf.tire_wear(new_tread_mm, actual_tread_mm, min_tread_mm, context=context)
+
+
+@tool
 def rf_machinery_cost_approach(
     items: List[dict],
     common_steps: Optional[List[dict]] = None,

@@ -59,6 +59,10 @@ from .machinery import (
     residual_value,
     scrap_value,
     split_set_price,
+    tire_wear,
+    vehicle_wear_exponential,
+    vehicle_wear_rd37,
+    wear_effective_life,
 )
 from .special import (
     cellular_site_rent,
@@ -124,6 +128,10 @@ __all__ = [
     "scrap_value",
     "residual_value",
     "machinery_cost_approach",
+    "vehicle_wear_rd37",
+    "vehicle_wear_exponential",
+    "wear_effective_life",
+    "tire_wear",
     "split_set_price",
     "mean_new_price",
     "cost_from_price",
