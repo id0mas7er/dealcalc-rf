@@ -447,3 +447,97 @@ def reversion_value(
         "reversion_value": money(gross * (1 - costs / 100)),
         "checks": [],
     }
+
+
+@method_card(
+    "BANK_LIQUIDATION_VALUE",
+    "ФСО II (ликвидационная стоимость); методика банков (Галасюк В.В.)",
+    "K = (1 − З_р) × К_э / (1 + R)^(t_c / 12); V_л,i = V_р,i × K",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-ii/",
+)
+def bank_liquidation_value(
+    market_values: Mapping[str, float],
+    costs_pct: float,
+    elasticity_coef: float,
+    discount_rate_pct: float,
+    foreclosure_months: float,
+    coefficient_decimals: Optional[int] = None,
+    coefficient_rounding: str = "round",
+    round_to: Optional[float] = None,
+    justification: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Liquidation value for a pledge, as banks compute it: the market value
+    of every part (land, buildings) times
+    ``K = (1 − costs) × K_e / (1 + R) ** (t_c / 12)``.
+
+    ``costs_pct`` — the costs of foreclosure and sale (З_р), ``elasticity_coef``
+    — the coefficient of price elasticity of demand (К_э, from the table of
+    Galasyuk by the liquidity of the object), ``discount_rate_pct`` — the
+    annual rate R, ``foreclosure_months`` — the term of foreclosure t_c.
+    ``coefficient_decimals`` with ``coefficient_rounding`` (``round`` or
+    ``down``) rounds K as the report does; ``round_to`` rounds every part,
+    and the total is the sum of the rounded parts.
+    """
+
+    if not isinstance(market_values, Mapping) or not market_values:
+        raise ValueError("market_values must name at least one part: {name: market value}")
+    values = {}
+    for name, value in market_values.items():
+        number = _rate(f"market_values[{name}]", value)
+        if number < 0:
+            raise ValueError(f"market_values[{name}] must be non-negative")
+        values[str(name)] = number
+    costs = _rate("costs_pct", costs_pct)
+    if not 0 <= costs < 100:
+        raise ValueError("costs_pct must be in [0, 100)")
+    elasticity = _rate("elasticity_coef", elasticity_coef)
+    if not 0 < elasticity <= 1:
+        raise ValueError("elasticity_coef must be in (0, 1]")
+    rate = _rate("discount_rate_pct", discount_rate_pct)
+    months = _flows([foreclosure_months])[0]
+    if months < 0:
+        raise ValueError("foreclosure_months must be non-negative")
+    exact = (1 - costs / 100) * elasticity / (1 + rate / 100) ** (months / 12)
+    coefficient = exact
+    if coefficient_decimals is not None:
+        if isinstance(coefficient_decimals, bool) or not isinstance(coefficient_decimals, int) or coefficient_decimals < 0:
+            raise ValueError("coefficient_decimals must be a non-negative integer")
+        scale = 10 ** coefficient_decimals
+        if coefficient_rounding == "round":
+            coefficient = round(exact, coefficient_decimals)
+        elif coefficient_rounding == "down":
+            coefficient = math.floor(exact * scale + 1e-9) / scale
+        else:
+            raise ValueError("coefficient_rounding must be 'round' or 'down'")
+    step = None
+    if round_to is not None:
+        step = _rate("round_to", round_to)
+        if step <= 0:
+            raise ValueError("round_to must be greater than 0")
+    parts = {}
+    for name, value in values.items():
+        liquidation = value * coefficient
+        parts[name] = {
+            "market_value": money(value),
+            "liquidation_value": money(liquidation if step is None else round(liquidation / step) * step),
+        }
+    note = justification.strip() if isinstance(justification, str) and justification.strip() else None
+    return {
+        "value_kind": "ликвидационная стоимость",
+        "costs_pct": costs,
+        "elasticity_coef": elasticity,
+        "discount_rate_pct": rate,
+        "foreclosure_months": months,
+        "coefficient_exact": round(exact, 6),
+        "coefficient": coefficient,
+        "parts": parts,
+        "market_value_total": money(sum(values.values())),
+        "liquidation_value": money(sum(part["liquidation_value"] for part in parts.values())),
+        "justification": note,
+        "guardrails": [] if note else [
+            "Обоснуйте К_э (таблица Галасюка по ликвидности объекта), расходы на реализацию, ставку R "
+            "и срок обращения взыскания (justification); число К_э в тексте и в расчёте должно совпадать."
+        ],
+    }
+

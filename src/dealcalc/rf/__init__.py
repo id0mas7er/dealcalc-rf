@@ -33,6 +33,7 @@ from .business import (
 )
 from .investment import (
     asset_liquidation_value,
+    bank_liquidation_value,
     capital_recovery_rate,
     discount_rate_build_up,
     gordon_terminal_value,
@@ -90,6 +91,7 @@ __all__ = [
     "net_assets",
     "business_liquidation_value",
     "asset_liquidation_value",
+    "bank_liquidation_value",
     "actual_share_value",
     "deferred_tax_effect",
     "business_interest_value",

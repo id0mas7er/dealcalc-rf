@@ -35,6 +35,7 @@ EXPECTED_TOOLS = {
     "rf_land_sufficiency",
     "rf_allocate_value",
     "rf_asset_liquidation_value",
+    "rf_bank_liquidation_value",
     "rf_vehicle_comparative_approach",
     "rf_braking_coefficient",
     "rf_parameter_unit_price",

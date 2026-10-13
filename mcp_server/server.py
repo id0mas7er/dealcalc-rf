@@ -629,6 +629,33 @@ def rf_asset_liquidation_value(
     )
 
 
+@tool
+def rf_bank_liquidation_value(
+    market_values: dict,
+    costs_pct: float,
+    elasticity_coef: float,
+    discount_rate_pct: float,
+    foreclosure_months: float,
+    coefficient_decimals: Optional[int] = None,
+    coefficient_rounding: str = "round",
+    round_to: Optional[float] = None,
+    justification: Optional[str] = None,
+    context: Optional[dict] = None,
+) -> dict:
+    """Ликвидационная стоимость залога по модели банков: K = (1 − З_р) × К_э / (1 + R)^(t_c/12),
+    V_л части = рыночная стоимость части × K.
+
+    market_values {часть: рыночная стоимость} (земля, здания); costs_pct — расходы на взыскание и
+    продажу, %; elasticity_coef — К_э (Галасюк, по ликвидности); discount_rate_pct — R, %;
+    foreclosure_months — срок обращения взыскания. coefficient_decimals и coefficient_rounding
+    (round | down) — округление K, как в отчёте; round_to — округление частей, итог — сумма
+    округлённых. Все параметры — оценщика, с обоснованием (justification)."""
+    return rf.bank_liquidation_value(
+        market_values, costs_pct, elasticity_coef, discount_rate_pct, foreclosure_months,
+        coefficient_decimals, coefficient_rounding, round_to, justification, context=context,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Автомобили, машины и оборудование (ФСО №10)
 # ---------------------------------------------------------------------------
