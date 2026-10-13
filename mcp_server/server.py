@@ -229,6 +229,23 @@ def rf_comparative_approach(
     return rf.comparative_approach(subject_area_sqm, comparables, currency, weighting, context=context)
 
 
+@tool
+def rf_item_comparative_approach(
+    comparables: List[dict],
+    weighting: str = "manual",
+    quantity: float = 1,
+    currency: str = "RUB",
+    context: Optional[dict] = None,
+) -> dict:
+    """Сравнительный подход «за объект» (ФСО V; ФСО №10, п. 13): оборудование и другие штучные
+    объекты без площади и без подбора по марке.
+
+    Аналог: price, adjustments (шаги как в rf_comparative_approach — к цене объекта, abs в рублях),
+    weight, source, date, url, price_type. V = quantity × взвешенное среднее скорректированных
+    цен; weighting — как в rf_comparative_approach. Веса-доли с суммой не 1 — замечание."""
+    return rf.item_comparative_approach(comparables, weighting, quantity, currency, context=context)
+
+
 # ---------------------------------------------------------------------------
 # Доходный подход
 # ---------------------------------------------------------------------------

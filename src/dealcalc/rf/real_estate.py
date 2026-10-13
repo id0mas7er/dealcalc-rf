@@ -196,6 +196,16 @@ def comparative_approach(
         }
         normalized.append(item)
 
+    share_checks = []
+    given = [comparable.get("weight") for comparable in comparables]
+    if weighting == "manual" and all(weight is not None for weight in given):
+        total_given = sum(raw_weights)
+        # Доли, которые в сумме почти 1, но не 1, — ошибка округления (отчёт 46/25-ю: 1,001).
+        if 0.98 <= total_given <= 1.02 and not math.isclose(total_given, 1, abs_tol=1e-9):
+            share_checks.append(
+                f"Веса оценщика в сумме {round(total_given, 6)}, а не 1: они нормированы к 1; "
+                "проверьте доли — при умножении на ненормированные веса итог был бы другим."
+            )
     sample = sample_weights(adjusted_all, weighting)
     if sample is not None:
         raw_weights = sample
@@ -232,7 +242,68 @@ def comparative_approach(
         "comparables": normalized,
         "checks": observation_checks(normalized)
         + variation_checks(sample_variation, len(adjusted_prices))
-        + zero_weight_checks(zero_weight),
+        + zero_weight_checks(zero_weight)
+        + share_checks,
+    }
+
+
+@method_card(
+    "COMPARABLE_ITEM_PRICE",
+    "ФСО V; ФСО №10, п. 13",
+    "P_adj,i — цена аналога с последовательными поправками; V = n × Σ w_i P_adj,i / Σ w_i",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-10/",
+)
+def item_comparative_approach(
+    comparables: Sequence[Mapping[str, Any]],
+    weighting: str = "manual",
+    quantity: float = 1,
+    currency: str = "RUB",
+) -> Dict[str, Any]:
+    """Comparative approach per object (a machine, equipment without area,
+    brand matching or a model dictionary): the price of each analog is
+    adjusted step by step (``adjustments``, the step types of
+    :func:`comparative_approach`), the value is the weighted mean of the
+    adjusted prices times ``quantity`` (identical objects).
+
+    Each comparable is ``{"price", "adjustments", "weight", "source", "date",
+    "url", "price_type", "description"}``; ``weighting`` — as in
+    :func:`comparative_approach`.
+    """
+
+    count = _finite_number("quantity", quantity)
+    if count <= 0:
+        raise ValueError("quantity must be greater than 0")
+    if not comparables:
+        raise ValueError("comparables must contain at least one item")
+    for index, comparable in enumerate(comparables):
+        if not isinstance(comparable, Mapping):
+            raise ValueError(f"comparables[{index}] must be an object")
+        if "area_sqm" in comparable:
+            raise ValueError(f"comparables[{index}].area_sqm: the approach is per object — use comparative_approach")
+    base = comparative_approach.__wrapped__(
+        1, [dict(comparable, area_sqm=1) for comparable in comparables], currency, weighting
+    )
+    items = []
+    for item in base["comparables"]:
+        item = {key: value for key, value in item.items() if key not in ("area_sqm", "unit_price")}
+        item["adjusted_price"] = item.pop("adjusted_unit_price")
+        items.append(item)
+    weighted = base["weighted_unit_price"]
+    return {
+        "approach": "comparative_per_item",
+        "currency": base["currency"],
+        "quantity": count,
+        "sample_size": base["sample_size"],
+        "weighting": weighting,
+        "weighting_formula": base["weighting_formula"],
+        "weighted_price": weighted,
+        "indicated_value": _round(weighted * count),
+        "adjusted_price_min": base["adjusted_unit_price_min"],
+        "adjusted_price_max": base["adjusted_unit_price_max"],
+        "variation": base["variation"],
+        "comparables": items,
+        "checks": base["checks"],
     }
 
 

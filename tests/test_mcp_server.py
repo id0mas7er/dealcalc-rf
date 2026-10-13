@@ -17,6 +17,7 @@ EXPECTED_TOOLS = {
     "rf_check_report",
     "rf_load_listings",
     "rf_comparative_approach",
+    "rf_item_comparative_approach",
     "rf_net_operating_income",
     "rf_cap_rate_extraction",
     "rf_income_capitalization",

@@ -15,6 +15,7 @@ from .real_estate import (
     gross_rent_multiplier,
     income_capitalization,
     indexed_replacement_cost,
+    item_comparative_approach,
     net_operating_income,
     reconcile_approaches,
 )
@@ -69,6 +70,7 @@ __all__ = [
     "comparative_approach",
     "allocate_value",
     "cost_approach",
+    "item_comparative_approach",
     "land_sufficiency",
     "indexed_replacement_cost",
     "dcf_valuation",
