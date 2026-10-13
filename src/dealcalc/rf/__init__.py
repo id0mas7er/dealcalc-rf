@@ -19,6 +19,9 @@ from .real_estate import (
     net_operating_income,
     reconcile_approaches,
     weights_from_scores,
+    interpolate_index,
+    composite_replacement_cost,
+    vat_breakdown,
 )
 from .data import deduplicate_listings, load_listings, normalize_listing, read_listings
 from .assignment import check_assignment
@@ -81,6 +84,9 @@ __all__ = [
     "cost_approach",
     "item_comparative_approach",
     "weights_from_scores",
+    "interpolate_index",
+    "composite_replacement_cost",
+    "vat_breakdown",
     "balance_items_present_value",
     "scoring_discount",
     "external_obsolescence_wages",

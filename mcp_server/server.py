@@ -416,6 +416,43 @@ def rf_discount_rate_build_up(
 
 
 @tool
+def rf_interpolate_index(
+    on_date: str, before: dict, after: dict, base_value: Optional[float] = None, source: Optional[str] = None,
+    context: Optional[dict] = None,
+) -> dict:
+    """Индекс цен (КО-ИНВЕСТ, Минстрой) на дату оценки линейной интерполяцией между двумя
+    опубликованными значениями {date, value} по дням. base_value — индекс базовой даты: тогда
+    ratio_to_base — шаг для rf_indexed_replacement_cost."""
+    return rf.interpolate_index(on_date, before, after, base_value, source, context=context)
+
+
+@tool
+def rf_composite_replacement_cost(
+    parts: List[dict],
+    common_indices: Optional[List[dict]] = None,
+    regional_coefficient: float = 1,
+    vat_pct: float = 0,
+    currency: str = "RUB",
+    context: Optional[dict] = None,
+) -> dict:
+    """Затраты на замещение здания из частей по разным сборникам (основное здание и веранда):
+    части {name, base_cost} или {name, volume, unit_cost} со своими indices [{name, value, source}],
+    затем common_indices; сумма частей, каждая показана."""
+    return rf.composite_replacement_cost(parts, common_indices, regional_coefficient, vat_pct, currency,
+                                         context=context)
+
+
+@tool
+def rf_vat_breakdown(
+    value: float, vat_rate_pct: float, vat_included: bool = True, land_value: float = 0,
+    round_to: Optional[float] = None, context: Optional[dict] = None,
+) -> dict:
+    """НДС стоимости: vat_included — «в т.ч.» (выделить), иначе начислить сверху; land_value —
+    часть без НДС (земля, НК РФ ст. 146 п. 2 пп. 6); round_to — округление итога до выделения."""
+    return rf.vat_breakdown(value, vat_rate_pct, vat_included, land_value, round_to, context=context)
+
+
+@tool
 def rf_weights_from_scores(scores: dict, context: Optional[dict] = None) -> dict:
     """Веса подходов по баллам оценщика: w = b / Σ b ({подход: балл}) — для rf_reconcile_approaches."""
     return rf.weights_from_scores(scores, context=context)

@@ -1252,3 +1252,177 @@ def weights_from_scores(scores: Mapping[str, float]) -> Dict[str, Any]:
         "weights": {name: round(value / total, 6) for name, value in values.items()},
         "guardrails": ["Баллы подходов — суждение оценщика: раскройте критерии и оценки по каждому."],
     }
+
+
+def _iso_date(name: str, value: Any) -> "date":
+    from datetime import date
+
+    if not isinstance(value, str):
+        raise ValueError(f"{name} must be a date 'YYYY-MM-DD'")
+    try:
+        return date.fromisoformat(value.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a date 'YYYY-MM-DD'") from exc
+
+
+@method_card(
+    "INDEX_INTERPOLATION",
+    "ФСО V; ФСО №7, п. 24 (индексы цен в строительстве)",
+    "I(t) = I_1 + (I_2 − I_1) × (t − t_1) / (t_2 − t_1); к базе: I(t) / I_база",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
+    context_reminder=False,
+)
+def interpolate_index(
+    on_date: str,
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    base_value: Optional[float] = None,
+    source: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Linear interpolation of a price index (КО-ИНВЕСТ, Минстрой) to the
+    valuation date between two published values ``{"date", "value"}`` (days
+    between dates). With ``base_value`` — the index of the base date — the
+    ratio ``I(t) / I_base`` is the step for :func:`indexed_replacement_cost`."""
+
+    when = _iso_date("on_date", on_date)
+    points = []
+    for name, point in (("before", before), ("after", after)):
+        if not isinstance(point, Mapping):
+            raise ValueError(f"{name} must be an object with date and value")
+        value = _finite_number(f"{name}.value", point.get("value"))
+        if value <= 0:
+            raise ValueError(f"{name}.value must be greater than 0")
+        points.append((_iso_date(f"{name}.date", point.get("date")), value))
+    (d1, v1), (d2, v2) = points
+    if not d1 < d2:
+        raise ValueError("before.date must be earlier than after.date")
+    share = (when - d1).days / (d2 - d1).days
+    value = v1 + (v2 - v1) * share
+    ratio = None
+    if base_value is not None:
+        base = _finite_number("base_value", base_value)
+        if base <= 0:
+            raise ValueError("base_value must be greater than 0")
+        ratio = value / base
+    return {
+        "on_date": when.isoformat(),
+        "share": round(share, 6),
+        "days": f"{(when - d1).days} / {(d2 - d1).days}",
+        "index_value": round(value, 6),
+        "ratio_to_base": None if ratio is None else round(ratio, 6),
+        "source": source,
+        "checks": [] if 0 <= share <= 1 else [
+            "Дата оценки вне интервала дат индексов: это экстраполяция — обоснуйте или возьмите опубликованный индекс."
+        ],
+        "guardrails": [] if source else ["Укажите источник индексов (выпуск КО-ИНВЕСТ, таблица) и класс конструктивной системы."],
+    }
+
+
+@method_card(
+    "COMPOSITE_REPLACEMENT_COST",
+    "ФСО V; ФСО №7, п. 24",
+    "C = Σ_части C_баз,i × Π I_i,k (× общие индексы)",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso7/",
+)
+def composite_replacement_cost(
+    parts: Sequence[Mapping[str, Any]],
+    common_indices: Optional[Sequence[Mapping[str, Any]]] = None,
+    regional_coefficient: float = 1,
+    vat_pct: float = 0,
+    currency: str = "RUB",
+) -> Dict[str, Any]:
+    """Replacement cost of a building made of parts priced by different
+    references (the main building and a veranda by different УПВС
+    collections): each part ``{"name", "base_cost"}`` or ``{"name",
+    "volume", "unit_cost"}`` with its own ``indices`` goes through its chain
+    and then ``common_indices``; the parts are summed, each shown."""
+
+    if not parts:
+        raise ValueError("parts must contain at least one part")
+    rows = []
+    checks: List[str] = []
+    total = 0.0
+    for index, part in enumerate(parts):
+        prefix = f"parts[{index}]"
+        if not isinstance(part, Mapping) or not isinstance(part.get("name"), str) or not part["name"].strip():
+            raise ValueError(f"{prefix} must be an object with a non-empty name")
+        if part.get("base_cost") is not None:
+            base = _non_negative(f"{prefix}.base_cost", part["base_cost"])
+            volume = unit = None
+        else:
+            volume = _non_negative(f"{prefix}.volume", part.get("volume"))
+            unit = _non_negative(f"{prefix}.unit_cost", part.get("unit_cost"))
+            base = volume * unit
+        chain = list(part.get("indices") or []) + list(common_indices or [])
+        result = indexed_replacement_cost.__wrapped__(base, chain, regional_coefficient, vat_pct, part["name"], currency)
+        checks += [f"{part['name'].strip()}: {text}" for text in result["checks"]]
+        total += result["replacement_cost"]
+        rows.append({"name": part["name"].strip(), "volume": volume, "unit_cost": unit, "base_cost": _round(base),
+                     "steps": result["steps"], "total_index": result["total_index"],
+                     "replacement_cost": result["replacement_cost"]})
+    return {
+        "approach": "cost",
+        "currency": _currency(currency),
+        "parts": rows,
+        "replacement_cost": _round(total),
+        "vat_pct": _round(_non_negative("vat_pct", vat_pct)),
+        "guardrails": [
+            "Индекс каждой части — по её назначению и конструктивной системе (сборник, отрасль): "
+            "не переносите индекс одного вида зданий на склады, сети и сооружения."
+        ],
+        "checks": checks,
+    }
+
+
+@method_card(
+    "VAT_BREAKDOWN",
+    "НК РФ, ст. 164, 146 (п. 2, пп. 6 — земля)",
+    "НДС «в т.ч.» = V_обл × s / (100 + s); сверху = V_обл × s / 100; земля — без НДС",
+    FORMULA_TECHNICAL,
+    source_url="https://srosovet.ru/activities/npa/fso-v/",
+    context_reminder=False,
+)
+def vat_breakdown(
+    value: float,
+    vat_rate_pct: float,
+    vat_included: bool = True,
+    land_value: float = 0,
+    round_to: Optional[float] = None,
+) -> Dict[str, Any]:
+    """VAT of a value: ``vat_included`` — the value already includes VAT
+    («в т.ч.»), otherwise VAT is added on top. ``land_value`` is the part
+    that is not subject to VAT (land); it is taken without VAT both ways.
+    ``round_to`` rounds the value before the breakdown (as reports round the
+    total), VAT is shown to kopecks."""
+
+    total = _non_negative("value", value)
+    rate = _non_negative("vat_rate_pct", vat_rate_pct)
+    land = _non_negative("land_value", land_value)
+    if not isinstance(vat_included, bool):
+        raise ValueError("vat_included must be true or false")
+    if round_to is not None:
+        step = _finite_number("round_to", round_to)
+        if step <= 0:
+            raise ValueError("round_to must be greater than 0")
+        total = round(total / step) * step
+    if land > total:
+        raise ValueError("land_value must not exceed value")
+    taxable = total - land
+    if vat_included:
+        vat = taxable * rate / (100 + rate)
+        gross, net = total, total - vat
+    else:
+        vat = taxable * rate / 100
+        gross, net = total + vat, total
+    return {
+        "vat_rate_pct": rate,
+        "vat_included": vat_included,
+        "land_value": _round(land),
+        "taxable_value": _round(taxable),
+        "value_without_vat": _round(net),
+        "vat": _round(vat),
+        "value_with_vat": _round(gross),
+    }
+
