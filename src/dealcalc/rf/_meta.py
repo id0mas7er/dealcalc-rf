@@ -559,9 +559,11 @@ def _step_range_review(result: Mapping[str, Any], valuation: Optional[date] = No
                 later = _later_source_text(label, raw, valuation)
                 if later:
                     texts.append(later)
-            published = _later_published_text(label, step.get("published"), valuation)
-            if published:
-                texts.append(published)
+            # The step and the variant chosen by a cascade (staged) — ревью Codex 15.10.2026.
+            for raw in dict.fromkeys(item for item in (step.get("published"), chosen.get("published")) if item):
+                published = _later_published_text(label, raw, valuation)
+                if published:
+                    texts.append(published)
             for text in texts:
                 found = _review(text, justified)
                 checks += found[0]
@@ -849,6 +851,9 @@ def _is_date(value: Any) -> bool:
         return False
 
 
+_ONE_OBSERVATION = {"аналогов": "Аналог", "позиций": "Позиция", "КП": "КП", "затрат": "Затрата"}
+
+
 def observation_checks(
     items: Sequence[Mapping[str, Any]],
     date_keys: Sequence[str] = ("date", "price_collected_at", "date_updated"),
@@ -885,9 +890,10 @@ def observation_checks(
         )
     if no_type:
         checks.append(f"Не указан тип цены (сделка/предложение) у {label} {no_type}.")
+    one = _ONE_OBSERVATION.get(label, "Аналог")
     for item in items:
         for warning in item.get("import_warnings") or []:
-            checks.append(f"Аналог {item['index']}: {warning}")
+            checks.append(f"{one} {item['index']}: {warning}")
     return checks
 
 

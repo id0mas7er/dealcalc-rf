@@ -309,3 +309,19 @@ def test_source_published_after_the_valuation_date_is_a_check():
 
     assert any("опубликован 2026-07-13" in text for text in early["checks"])
     assert not any("опубликован" in text for text in late["checks"])
+
+
+def test_staged_variant_published_after_the_valuation_date():
+    variant = {"label": "таблица", "type": "coef", "value": 0.98, "source": "Справочник", "date": "2026-07-01",
+               "published": "2026-07-13"}
+    step = {"name": "балкон", "type": "staged", "stages": [[variant]]}
+    result = rf.comparative_approach(1, [{"price": 100, "area_sqm": 1, "adjustments": [step]}],
+                                     context=dict(CONTEXT, valuation_date="2026-07-05"))
+
+    assert any("опубликован 2026-07-13" in text for text in result["checks"])
+
+
+def test_import_warning_named_by_kind():
+    result = rf.mean_new_price([{"price": 100, "import_warnings": ["не распознан НДС"]}], context=CONTEXT)
+
+    assert any(text.startswith("КП 1:") for text in result["checks"])
