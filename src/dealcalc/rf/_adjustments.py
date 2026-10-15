@@ -407,8 +407,11 @@ def apply_adjustments(
             )
             if not 0 <= analog_pct < 100:
                 raise ValueError(f"{name_prefix}.analog_pct must be in [0, 100)")
-            if not 0 <= subject_pct <= 100:
-                raise ValueError(f"{name_prefix}.subject_pct must be in [0, 100]")
+            if not 0 <= subject_pct < 100:
+                raise ValueError(
+                    f"{name_prefix}.subject_pct must be in [0, 100): a fully worn object has no price "
+                    "by comparison — consider its scrap value (rf_scrap_value)"
+                )
             factor = (1 - subject_pct / 100) / (1 - analog_pct / 100)
             new_price = price * factor
             record.update(

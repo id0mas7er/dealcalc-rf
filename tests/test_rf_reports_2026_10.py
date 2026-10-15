@@ -261,8 +261,40 @@ def test_justified_land_difference_is_a_reminder():
     values = {"comparative": 314_000_000, "income": 344_000_000}
     weights = {"comparative": 0.5, "income": 0.5}
     land = {"comparative": -46_471_247, "income": 0}
-    result = rf.reconcile_approaches(values, weights, justification="аренда отражает землю", land_adjustments=land,
+    result = rf.reconcile_approaches(values, weights, land_adjustments=land, land_justification="аренда отражает землю",
                                      context=CONTEXT)
+    weights_only = rf.reconcile_approaches(values, weights, justification="веса по надёжности подходов",
+                                           land_adjustments=land, context=CONTEXT)
 
     assert not any("по-разному" in item for item in result["checks"])
     assert any("по-разному" in item for item in result["guardrails"])
+    assert any("по-разному" in item for item in weights_only["checks"])  # регрессия 0.24.6
+
+
+# Ревью Claude и аудит Codex 15.10.2026.
+
+
+def test_quotes_of_different_vat_basis_are_a_check():
+    quotes = [{"price": 1000, "vat": "included"}, {"price": 1000, "vat": "excluded"}]
+
+    assert any("одной базе" in text for text in rf.mean_new_price(quotes, context=CONTEXT)["checks"])
+
+
+def test_full_wear_in_a_comparative_step_points_to_scrap():
+    step = {"name": "износ", "type": "depreciation", "analog_pct": 50, "subject_pct": 100}
+    with pytest.raises(ValueError, match="rf_scrap_value"):
+        rf.item_comparative_approach([{"price": 1000, "adjustments": [step]}], context=CONTEXT)
+    item = [{"name": "a", "new_price": 1000, "physical_depreciation_pct": 100}]
+    result = rf.machinery_cost_approach(item, context=CONTEXT)
+
+    assert result["total_value"] == 0 and any("rf_scrap_value" in text for text in result["guardrails"])
+
+
+def test_observations_named_by_kind():
+    machinery = rf.machinery_cost_approach([{"name": "a", "new_price": 1000, "physical_depreciation_pct": 0}],
+                                           context=CONTEXT)
+    costs = rf.intangible_cost_method([{"name": "a", "costs": [{"amount": 1000, "date": "2024-01-01"}],
+                                        "used_years": 0, "useful_life_years": 10}], context=CONTEXT)
+
+    assert any("у позиций [1]" in text for text in machinery["checks"])
+    assert not any("тип цены" in text for text in costs["checks"])

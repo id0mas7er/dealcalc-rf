@@ -904,6 +904,7 @@ def reconcile_approaches(
     divergence_base: str = "min",
     value_interval: Optional[Mapping[str, Any]] = None,
     land_adjustments: Optional[Mapping[str, float]] = None,
+    land_justification: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Reconcile indicated values with appraiser-supplied weights.
 
@@ -1016,6 +1017,9 @@ def reconcile_approaches(
             )
     land = None
     land_notes: List[str] = []
+    # Its own justification: one given for the weights or the divergence does
+    # not explain the land (ревью Claude 15.10.2026, отчёт 41).
+    land_note = land_justification.strip() if isinstance(land_justification, str) and land_justification.strip() else None
     if land_adjustments is not None:
         if not isinstance(land_adjustments, Mapping) or set(land_adjustments) != set(values):
             raise ValueError("land_adjustments must name exactly the same approaches as approach_values")
@@ -1027,10 +1031,10 @@ def reconcile_approaches(
                 f"Излишек/недостаток земли учтён в подходах по-разному ({land}): объект один и земля "
                 "одна — учтите её одинаково или обоснуйте, почему аналоги подхода её уже отражают"
             )
-            if note is None:
-                checks.append(f"{text}.")
+            if land_note is None:
+                checks.append(f"{text} (land_justification).")
             else:  # justified by the appraiser: what the report must show (ревью Codex 15.10.2026)
-                land_notes.append(f"{text}; приведено обоснование оценщика — оно должно быть в отчёте.")
+                land_notes.append(f"{text}; обоснование оценщика: {land_note} — оно должно быть в отчёте.")
     if excluded and note is None:
         checks.append(
             f"Подходы {excluded} исключены (вес 0) без обоснования: приведите причину "

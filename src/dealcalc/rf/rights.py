@@ -136,7 +136,7 @@ def intangible_cost_method(
         "items": rows,
         "total_value": money(total),
         "costs": costs_seen,
-        "checks": checks + observation_checks(costs_seen),
+        "checks": checks + observation_checks(costs_seen, label="затрат", price_type=False),
         "guardrails": guardrails,
     }
 

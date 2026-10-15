@@ -669,6 +669,12 @@ def machinery_cost_approach(
             **observation_fields(item, prefix),
         })
     guardrails = []
+    worn = [item["index"] for item in results if item["total_depreciation_pct"] >= 100]
+    if worn:
+        guardrails.append(
+            f"Позиции {worn} изношены на 100 %: стоимость 0 — рассмотрите утилизационную стоимость "
+            "(rf_scrap_value) за вычетом расходов на демонтаж (аудит Codex 15.10.2026)."
+        )
     if len(results) > 1 and len(set(used_wear)) == 1:
         guardrails.append(
             "Износ одинаков у всех позиций: обоснуйте его по каждой (год выпуска, тип, состояние) "
@@ -687,7 +693,7 @@ def machinery_cost_approach(
         # VAT is not known, so nothing is checked (not "0 %").
         **({} if vat is None else {"vat_pct": vat}),
         "guardrails": guardrails,
-        "checks": observation_checks(results),
+        "checks": observation_checks(results, label="позиций"),
     }
 
 
@@ -767,7 +773,7 @@ def mean_new_price(quotes: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         "guardrails": [
             f"Цены нового различаются на {round(spread, 1)} %: проверьте, что это одна модель и комплектация."
         ] if spread > 20 else [],
-        "checks": observation_checks(rows),
+        "checks": observation_checks(rows, label="КП"),
     }
 
 

@@ -635,6 +635,7 @@ def rf_reconcile_approaches(
     value_interval: Optional[dict] = None,
     land_adjustments: Optional[dict] = None,
     context: Optional[dict] = None,
+    land_justification: Optional[str] = None,
 ) -> dict:
     """Согласование результатов подходов (ФСО V, п. 3). Механическое усреднение не допускается.
 
@@ -648,7 +649,8 @@ def rf_reconcile_approaches(
     подходов, не интервал стоимости. value_interval {low, high, justification} — суждение
     оценщика о границах интервала стоимости (ФСО №7, п. 30); задаёт только оценщик.
     land_adjustments {подход: сумма} — излишек (+) / недостаток (−) земли, учтённый в каждом
-    подходе (rf_land_sufficiency); разные суммы — замечание без justification."""
+    подходе (rf_land_sufficiency); разные суммы — замечание без land_justification (своё
+    обоснование: justification весов и расхождения его не заменяет)."""
     return rf.reconcile_approaches(
         approach_values,
         weights,
@@ -658,6 +660,7 @@ def rf_reconcile_approaches(
         divergence_base,
         value_interval,
         land_adjustments,
+        land_justification,
         context=context,
     )
 

@@ -237,7 +237,7 @@ adjustments}`. Шаги `adjustments`: `{"name", "type": "pct", "value": -5}`
 `land` (земля объекта на м² объекта − земля аналога на м² аналога).
 Излишек или недостаток земли — `rf_land_sufficiency`; сумму учесть во всех
 подходах одинаково и передать в `rf_reconcile_approaches`
-(`land_adjustments`). Разнесение итога на землю и здания —
+(`land_adjustments`; разный учёт — только с `land_justification`). Разнесение итога на землю и здания —
 `rf_allocate_value`; НДС — только с долей зданий.
 
 **Согласование.** `rf_reconcile_approaches`: `approach_values` и `weights`

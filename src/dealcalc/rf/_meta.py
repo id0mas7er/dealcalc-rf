@@ -299,9 +299,10 @@ def _analog_vat_checks(context: Mapping[str, Any], result: Mapping[str, Any]) ->
     """VAT basis of every analog price: one basis, matching the assignment."""
 
     bases: Dict[str, List[Any]] = {}
-    # Analogs only: the VAT of a new price of a machinery item is converted by
-    # the method itself, its result is checked by vat_pct (ревью Codex 15.10.2026).
-    for item in _observations(result, ("comparables", "analogs")):
+    # Not the items of a machinery cost approach: the method converts the VAT
+    # of each new price itself, its result is checked by vat_pct (ревью Codex
+    # 15.10.2026). Quotes of a new price are averaged as given — one basis.
+    for item in _observations(result, ("comparables", "analogs", "quotes")):
         vat = _analog_vat(item)
         if vat:
             bases.setdefault("excluded" if vat == "not_applicable" else vat, []).append(item.get("index"))
@@ -834,8 +835,12 @@ def _is_date(value: Any) -> bool:
 def observation_checks(
     items: Sequence[Mapping[str, Any]],
     date_keys: Sequence[str] = ("date", "price_collected_at", "date_updated"),
+    label: str = "аналогов",
+    price_type: bool = True,
 ) -> List[str]:
-    """Warnings about missing provenance of market observations."""
+    """Warnings about missing provenance of market observations. ``label``
+    names them in messages (аналогов, позиций, КП, затрат); ``price_type``
+    is false for costs, which are not offers or deals (аудит Codex 15.10.2026)."""
 
     checks = []
     bad_dates = [item["index"] for item in items if item.get("date") and not _is_date(item["date"])]
@@ -847,22 +852,22 @@ def observation_checks(
     ]
     no_source = [item["index"] for item in items if not item.get("source")]
     no_date = [item["index"] for item in items if not any(item.get(key) for key in date_keys)]
-    no_type = [item["index"] for item in items if not item.get("price_type")]
+    no_type = [item["index"] for item in items if not item.get("price_type")] if price_type else []
     if no_source:
-        checks.append(f"Не указан источник у аналогов {no_source}.")
+        checks.append(f"Не указан источник у {label} {no_source}.")
     if no_date:
-        checks.append(f"Не указана дата цены у аналогов {no_date}.")
+        checks.append(f"Не указана дата цены у {label} {no_date}.")
     if bad_dates:
         checks.append(
-            f"Дата цены не распознана у аналогов {bad_dates}: ожидается ГГГГ-ММ-ДД или ДД.ММ.ГГГГ."
+            f"Дата цены не распознана у {label} {bad_dates}: ожидается ГГГГ-ММ-ДД или ДД.ММ.ГГГГ."
         )
     if bad_price_dates:
         checks.append(
-            f"Дата снятия цены / обновления не распознана у аналогов {sorted(set(bad_price_dates))}: "
+            f"Дата снятия цены / обновления не распознана у {label} {sorted(set(bad_price_dates))}: "
             "ожидается ГГГГ-ММ-ДД или ДД.ММ.ГГГГ."
         )
     if no_type:
-        checks.append(f"Не указан тип цены (сделка/предложение) у аналогов {no_type}.")
+        checks.append(f"Не указан тип цены (сделка/предложение) у {label} {no_type}.")
     for item in items:
         for warning in item.get("import_warnings") or []:
             checks.append(f"Аналог {item['index']}: {warning}")
