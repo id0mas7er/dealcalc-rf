@@ -170,14 +170,16 @@ def _parse_date(value: Any) -> Optional[date]:
         return None
 
 
-def _observations(result: Mapping[str, Any]) -> List[Mapping[str, Any]]:
+def _observations(
+    result: Mapping[str, Any], keys: Sequence[str] = ("comparables", "analogs", "items", "costs", "quotes")
+) -> List[Mapping[str, Any]]:
     """Market observations of a result: analogs, positions of a machinery
     cost approach (``items``), costs of intangible assets (``costs``), quotes
     of a new price (``quotes``) —
     анализ отчётов 14.10.2026: цена позиции позже даты оценки не проверялась."""
 
     items: List[Any] = []
-    for key in ("comparables", "analogs", "items", "costs", "quotes"):
+    for key in keys:
         found = result.get(key)
         if isinstance(found, list):
             items += found
@@ -297,7 +299,9 @@ def _analog_vat_checks(context: Mapping[str, Any], result: Mapping[str, Any]) ->
     """VAT basis of every analog price: one basis, matching the assignment."""
 
     bases: Dict[str, List[Any]] = {}
-    for item in _observations(result):
+    # Analogs only: the VAT of a new price of a machinery item is converted by
+    # the method itself, its result is checked by vat_pct (ревью Codex 15.10.2026).
+    for item in _observations(result, ("comparables", "analogs")):
         vat = _analog_vat(item)
         if vat:
             bases.setdefault("excluded" if vat == "not_applicable" else vat, []).append(item.get("index"))

@@ -238,3 +238,31 @@ def test_report_accepts_the_value_of_new_methods(name, result_of):
     result = result_of()
     keys = _VALUE_KEYS[result["method_card"]["id"]]
     assert any(isinstance(result.get(key), (int, float)) for key in keys)
+
+
+# Восьмой прогон ревью Codex 15.10.2026.
+
+
+def test_machinery_vat_of_a_new_price_is_not_an_analog_basis():
+    context = dict(CONTEXT, vat="included", vat_rate_pct=20)
+    item = [{"name": "a", "new_price": 1000, "vat": "excluded", "physical_depreciation_pct": 0}]
+    result = rf.machinery_cost_approach(item, vat_rate_pct=20, context=context)
+
+    assert result["total_value"] == 1200 and not any("базе задания" in text for text in result["checks"])
+
+
+def test_report_takes_the_rounded_machinery_total():
+    from dealcalc.rf.report import _VALUE_KEYS
+
+    assert _VALUE_KEYS["MACHINERY_COST_APPROACH"] == ("total_rounded",)
+
+
+def test_justified_land_difference_is_a_reminder():
+    values = {"comparative": 314_000_000, "income": 344_000_000}
+    weights = {"comparative": 0.5, "income": 0.5}
+    land = {"comparative": -46_471_247, "income": 0}
+    result = rf.reconcile_approaches(values, weights, justification="аренда отражает землю", land_adjustments=land,
+                                     context=CONTEXT)
+
+    assert not any("по-разному" in item for item in result["checks"])
+    assert any("по-разному" in item for item in result["guardrails"])

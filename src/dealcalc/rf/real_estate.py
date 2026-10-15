@@ -1015,6 +1015,7 @@ def reconcile_approaches(
                 f"[{interval['low']}; {interval['high']}]: проверьте интервал."
             )
     land = None
+    land_notes: List[str] = []
     if land_adjustments is not None:
         if not isinstance(land_adjustments, Mapping) or set(land_adjustments) != set(values):
             raise ValueError("land_adjustments must name exactly the same approaches as approach_values")
@@ -1026,7 +1027,10 @@ def reconcile_approaches(
                 f"Излишек/недостаток земли учтён в подходах по-разному ({land}): объект один и земля "
                 "одна — учтите её одинаково или обоснуйте, почему аналоги подхода её уже отражают"
             )
-            checks.append(f"{text}." if note is None else f"{text}; приведено обоснование оценщика.")
+            if note is None:
+                checks.append(f"{text}.")
+            else:  # justified by the appraiser: what the report must show (ревью Codex 15.10.2026)
+                land_notes.append(f"{text}; приведено обоснование оценщика — оно должно быть в отчёте.")
     if excluded and note is None:
         checks.append(
             f"Подходы {excluded} исключены (вес 0) без обоснования: приведите причину "
@@ -1071,6 +1075,7 @@ def reconcile_approaches(
         ),
         "checks": checks,
     }
+    result["guardrails"] += land_notes
     if status == STATUS_NOT_RECONCILED:
         result["weighted_value_diagnostic"] = _round(reconciled)
     if status is not None:

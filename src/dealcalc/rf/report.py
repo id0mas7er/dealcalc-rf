@@ -90,7 +90,7 @@ _VALUE_KEYS = {
     "MACHINERY_COST": ("residual_value",),
     # Методы 0.17–0.23 (ревью Codex 15.10.2026: отчёт с их итогом не выпускался).
     "COMPARABLE_ITEM_PRICE": ("indicated_value",),
-    "MACHINERY_COST_APPROACH": ("total_rounded", "total_value"),
+    "MACHINERY_COST_APPROACH": ("total_rounded",),  # the value chosen; equals total_value without round_to
     "INTANGIBLE_COST_METHOD": ("total_value",),
     "RELIEF_FROM_ROYALTY": ("value",),
     "BANK_LIQUIDATION_VALUE": ("liquidation_value",),

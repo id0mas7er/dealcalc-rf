@@ -480,12 +480,15 @@ def rf_relief_from_royalty(
     royalty_source: Optional[str] = None,
     context: Optional[dict] = None,
     flow_rate_basis: Optional[dict] = None,
+    *,
+    source_ranges: Optional[dict] = None,
 ) -> dict:
     """Метод освобождения от роялти (ФСО XI, пп. 14–15): роялти = выручка × ставка (× (1 − налог)),
     V = Σ роялти / (1 + r)^t + паушальный платёж. periods — моменты дисконтирования в годах
     (0,38; 1,38…), по умолчанию 1, 2, …"""
     return rf.relief_from_royalty(revenues, royalty_rate_pct, discount_rate_pct, periods, tax_rate_pct, lump_sum,
-                                  royalty_source, context=context, flow_rate_basis=flow_rate_basis)
+                                  royalty_source, context=context, flow_rate_basis=flow_rate_basis,
+                                  source_ranges=source_ranges)
 
 
 @tool
@@ -748,6 +751,8 @@ def rf_bank_liquidation_value(
     round_to: Optional[float] = None,
     justification: Optional[str] = None,
     context: Optional[dict] = None,
+    *,
+    source_ranges: Optional[dict] = None,
 ) -> dict:
     """Ликвидационная стоимость залога по модели банков: K = (1 − З_р) × К_э / (1 + R)^(t_c/12),
     V_л части = рыночная стоимость части × K.
@@ -760,6 +765,7 @@ def rf_bank_liquidation_value(
     return rf.bank_liquidation_value(
         market_values, costs_pct, elasticity_coef, discount_rate_pct, foreclosure_months,
         coefficient_decimals, coefficient_rounding, round_to, justification, context=context,
+        source_ranges=source_ranges,
     )
 
 

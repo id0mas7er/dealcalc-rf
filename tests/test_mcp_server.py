@@ -146,3 +146,12 @@ def test_flow_rate_basis_and_conditions_pass_through_tools():
 
     assert any("уровню цен" in check for check in income["checks"])
     assert [item["confirmed"] for item in rent["required_conditions"]] == [True, False, False]
+
+
+def test_bank_source_ranges_through_mcp():
+    """Ревью Codex 15.10.2026: границы источника терялись в обёртке."""
+
+    ranges = {"elasticity_coef": {"low": 0.4, "high": 0.6, "source": "Галасюк", "page": 1}}
+    result = server.rf_bank_liquidation_value({"a": 1000}, 10, 0.9, 0, 0, source_ranges=ranges)
+
+    assert any("elasticity_coef" in text for text in result["checks"])
