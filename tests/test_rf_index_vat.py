@@ -61,8 +61,8 @@ def test_extrapolation_to_a_negative_index_is_an_error():
 def test_land_checked_before_rounding():
     """Ревью Codex 15.10.2026: итог 1499 при шаге 1000 — меньше земли 1499."""
 
-    result = rf.vat_breakdown(1499, 20, land_value=1499, round_to=1000)
-
-    assert result["taxable_value"] == 0 and result["vat"] == 0 and result["value_with_vat"] == 1000
+    with pytest.raises(ValueError, match="smaller round_to"):
+        rf.vat_breakdown(1499, 20, land_value=1499, round_to=1000)
+    assert rf.vat_breakdown(1499, 20, land_value=1499, round_to=1)["vat"] == 0
     assert rf.vat_breakdown(2500, 20, round_to=1000)["value_with_vat"] == 3000
 

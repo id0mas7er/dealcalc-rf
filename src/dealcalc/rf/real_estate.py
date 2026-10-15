@@ -1418,9 +1418,13 @@ def vat_breakdown(
         raise ValueError("land_value must not exceed value")
     if round_to is not None:
         total = round_step(total, step)
-    # The land is checked against the value before rounding; a total rounded
-    # below the land leaves nothing to tax (ревью Codex 15.10.2026).
-    taxable = max(total - land, 0.0)
+        # A total rounded below the land would show land worth more than the
+        # whole object (ревью Codex 15.10.2026).
+        if land > total:
+            raise ValueError(
+                f"rounded value {total:g} is less than land_value {land:g}: use a smaller round_to"
+            )
+    taxable = total - land
     if vat_included:
         vat = taxable * rate / (100 + rate)
         gross, net = total, total - vat

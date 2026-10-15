@@ -147,7 +147,7 @@ def test_split_half_a_kopeck_like_money():
 def test_quote_after_the_valuation_date_is_a_check():
     result = rf.mean_new_price([{"price": 100_000, "date": "2026-01-01", "source": "КП"}], context=CONTEXT)
 
-    assert any("позже даты оценки" in text for text in result["checks"])
+    assert any("Цены КП [1]" in text for text in result["checks"])
 
 
 def test_step_rounding_half_up():

@@ -171,6 +171,18 @@ def _observations(result: Mapping[str, Any]) -> List[Mapping[str, Any]]:
     return [item for item in items if isinstance(item, Mapping)]
 
 
+_OBSERVATION_LABELS = {"comparables": "аналогов", "analogs": "аналогов", "items": "позиций", "costs": "затрат",
+                       "quotes": "КП"}
+
+
+def _observation_label(result: Mapping[str, Any]) -> str:
+    """What the observations of a result are, for messages: КП of a new price
+    are not analogs (ревью Codex 15.10.2026)."""
+
+    labels = [label for key, label in _OBSERVATION_LABELS.items() if isinstance(result.get(key), list)]
+    return labels[0] if len(set(labels)) == 1 else "наблюдений"
+
+
 def _later_price_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[str]:
     """Prices dated after the valuation date (ФСО III, п. 12; ФСО №10, п. 12).
 
@@ -189,7 +201,7 @@ def _later_price_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -
     if not later:
         return []
     return [
-        f"Цены аналогов {later} датированы позже даты оценки: обоснуйте, что они отражают "
+        f"Цены {_observation_label(result)} {later} датированы позже даты оценки: обоснуйте, что они отражают "
         "состояние рынка на дату оценки, скорректируйте на дату или исключите (ФСО III, п. 12)."
     ]
 
