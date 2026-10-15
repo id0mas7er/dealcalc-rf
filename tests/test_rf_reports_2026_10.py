@@ -185,3 +185,12 @@ def test_source_dated_by_a_later_year_is_a_check():
 
     assert any("позже даты оценки" in item for item in later["checks"])
     assert not any("позже даты оценки" in item for item in same["checks"])
+
+
+
+def test_vehicle_year_given_as_a_string_is_checked():
+    comparables = [{"brand": "Kia", "model": "Rio", "year": "2026", "price_rub": 1_000_000}]
+    context = {"valuation_date": "2025-02-28", "value_type": "рыночная", "vat": "included", "vat_rate_pct": 20}
+    result = rf.vehicle_comparative_approach({"brand": "Kia", "model": "Rio"}, comparables, context=context)
+
+    assert any("Аналоги [1]" in item and "год выпуска" in item for item in result["checks"])

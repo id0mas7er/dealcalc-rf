@@ -355,15 +355,22 @@ def _vehicle_year_checks(context: Mapping[str, Any], result: Mapping[str, Any]) 
     valuation = _valuation_date(context)
     if valuation is None or result.get("asset_type") != "vehicle":
         return []
+    def number(value: Any) -> Optional[float]:
+        # Год аналога может прийти строкой («2026») — ревью Codex 15.10.2026.
+        try:
+            return None if isinstance(value, bool) or value in (None, "") else float(str(value).strip())
+        except ValueError:
+            return None
+
     checks = []
-    year = result.get("subject_year")
-    if isinstance(year, (int, float)) and year > valuation.year:
+    year = number(result.get("subject_year"))
+    if year is not None and year > valuation.year:
         checks.append(
             f"Год выпуска объекта {year:g} позже года даты оценки {valuation.year}: на дату оценки такого "
             "автомобиля не было — проверьте год или дату оценки."
         )
     later = [item.get("index") for item in _observations(result)
-             if isinstance(item.get("year"), (int, float)) and item["year"] > valuation.year]
+             if (number(item.get("year")) or 0) > valuation.year]
     if later:
         checks.append(
             f"Аналоги {later}: год выпуска позже года даты оценки {valuation.year} — на дату оценки их не "

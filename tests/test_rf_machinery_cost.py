@@ -119,3 +119,23 @@ def test_later_price_of_a_machinery_item_is_a_check():
 
     assert any("позже даты оценки" in item for item in result["checks"])
     assert any("Позиция 1, шаг" in item for item in result["checks"])
+
+
+
+def test_machinery_vat_against_the_context():
+    """Ревью Codex 15.10.2026: НДС начислялся при vat=excluded без замечания."""
+
+    item = [{"name": "a", "new_price": 1000, "physical_depreciation_pct": 0}]
+    with_vat = rf.machinery_cost_approach(item, vat_rate_pct=20, context=dict(CONTEXT, vat="excluded"))
+    without = rf.machinery_cost_approach(item, context=dict(CONTEXT, vat="included", vat_rate_pct=20))
+    matching = rf.machinery_cost_approach(item, vat_rate_pct=20, context=dict(CONTEXT, vat="included", vat_rate_pct=20))
+
+    assert any("НДС" in text for text in with_vat["checks"])
+    assert any("НДС 0%" in text for text in without["checks"])
+    assert not any("НДС" in text for text in matching["checks"])
+
+
+def test_split_half_a_kopeck_like_money():
+    result = rf.split_set_price(0.025, {"a": 1, "b": 1}, base_source="договор", context=CONTEXT)
+
+    assert result["set_price"] == 0.03 and round(sum(item["price"] for item in result["items"]), 2) == 0.03

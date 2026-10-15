@@ -681,6 +681,9 @@ def machinery_cost_approach(
         "total_rounded": money(total_rounded),
         "round_to": step,
         "vat_rate_pct": vat,
+        # The rate actually in the value: the general VAT check against the
+        # context reads it (ревью Codex 15.10.2026: НДС при vat=excluded молча).
+        "vat_pct": 0 if vat is None else vat,
         "guardrails": guardrails,
         "checks": observation_checks(results),
     }
@@ -709,7 +712,8 @@ def split_set_price(
     # 33,33 — ревью Codex 14.10.2026: остаток на последнюю давал −0,01).
     exact = [total * base / base_total * 100 for base in bases.values()]
     cents = [math.floor(value + 1e-9) for value in exact]
-    left = round(total * 100) - sum(cents)
+    # Цена комплекта в копейках — по тому же правилу, что money() (половина вверх).
+    left = int(round(money(total) * 100)) - sum(cents)
     order = sorted(range(len(exact)), key=lambda i: (-(exact[i] - cents[i]), i))
     for i in order[:max(left, 0)]:
         cents[i] += 1
