@@ -458,8 +458,9 @@ def apply_adjustments(
                 record["choice"] = _choice(kind, bounds, checked, price, step, policy or "mean")
         if policy is not None and "choice" not in record:
             raise ValueError(f"{name_prefix}: choice_rule needs range.mean")
-        # The evidence of the step travels with it into the result.
-        for key in ("source", "date", "page", "justification"):
+        # The evidence of the step travels with it into the result; ``published``
+        # — the publication date of the source, apart from the market date.
+        for key in ("source", "date", "published", "page", "justification"):
             text = "" if step.get(key) is None else str(step[key]).strip()
             if text:
                 record[key] = text

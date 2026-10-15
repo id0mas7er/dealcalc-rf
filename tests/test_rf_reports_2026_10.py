@@ -298,3 +298,14 @@ def test_observations_named_by_kind():
 
     assert any("у позиций [1]" in text for text in machinery["checks"])
     assert not any("тип цены" in text for text in costs["checks"])
+
+
+def test_source_published_after_the_valuation_date_is_a_check():
+    step = {"name": "балкон", "type": "coef", "value": 0.98, "source": "СтатРиелт", "date": "2026-07-01",
+            "published": "2026-07-13"}
+    comparables = [{"price": 100, "area_sqm": 1, "adjustments": [step]}]
+    early = rf.comparative_approach(1, comparables, context=dict(CONTEXT, valuation_date="2026-07-05"))
+    late = rf.comparative_approach(1, comparables, context=dict(CONTEXT, valuation_date="2026-07-20"))
+
+    assert any("опубликован 2026-07-13" in text for text in early["checks"])
+    assert not any("опубликован" in text for text in late["checks"])

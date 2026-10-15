@@ -473,6 +473,20 @@ def _later_source_text(label: str, raw: Any, valuation: Optional[date]) -> Optio
     )
 
 
+def _later_published_text(label: str, raw: Any, valuation: Optional[date]) -> Optional[str]:
+    """A source published after the valuation date: its data were not
+    available on that date, though they may describe the market before it
+    (СтатРиелт «на 01.07.2026» опубликован 13.07.2026) — аудит Codex 15.10.2026."""
+
+    found = None if valuation is None or raw in (None, "") else _parse_date(raw)
+    if found is None or found <= valuation:
+        return None
+    return (
+        f"{label}: источник опубликован {raw}, позже даты оценки {valuation.isoformat()} — на дату оценки "
+        "этих данных ещё не было; обоснуйте их использование (ФСО III, п. 12)"
+    )
+
+
 def _valuation_date(context: Mapping[str, Any]) -> Optional[date]:
     return date.fromisoformat(context["valuation_date"]) if context.get("valuation_date") else None
 
@@ -545,6 +559,9 @@ def _step_range_review(result: Mapping[str, Any], valuation: Optional[date] = No
                 later = _later_source_text(label, raw, valuation)
                 if later:
                     texts.append(later)
+            published = _later_published_text(label, step.get("published"), valuation)
+            if published:
+                texts.append(published)
             for text in texts:
                 found = _review(text, justified)
                 checks += found[0]
