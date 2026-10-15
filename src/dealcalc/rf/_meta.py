@@ -159,11 +159,12 @@ def _parse_date(value: Any) -> Optional[date]:
 
 def _observations(result: Mapping[str, Any]) -> List[Mapping[str, Any]]:
     """Market observations of a result: analogs, positions of a machinery
-    cost approach (``items``), costs of intangible assets (``costs``) —
+    cost approach (``items``), costs of intangible assets (``costs``), quotes
+    of a new price (``quotes``) —
     анализ отчётов 14.10.2026: цена позиции позже даты оценки не проверялась."""
 
     items: List[Any] = []
-    for key in ("comparables", "analogs", "items", "costs"):
+    for key in ("comparables", "analogs", "items", "costs", "quotes"):
         found = result.get(key)
         if isinstance(found, list):
             items += found

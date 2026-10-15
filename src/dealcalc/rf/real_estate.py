@@ -26,6 +26,7 @@ from ._adjustments import (
     apply_adjustments,
     money,
     range_position,
+    round_step,
     source_range,
     scaled_weights,
     variation,
@@ -1199,7 +1200,7 @@ def allocate_value(
             raise ValueError("round_to must be greater than 0")
 
     def rounded(value: float) -> float:
-        return value if step is None else round(value / step) * step
+        return round_step(value, step)
 
     rest = total - land
     weight_total = sum(weight for _, _, weight in weighted)
@@ -1413,10 +1414,13 @@ def vat_breakdown(
         step = _finite_number("round_to", round_to)
         if step <= 0:
             raise ValueError("round_to must be greater than 0")
-        total = round(total / step) * step
     if land > total:
         raise ValueError("land_value must not exceed value")
-    taxable = total - land
+    if round_to is not None:
+        total = round_step(total, step)
+    # The land is checked against the value before rounding; a total rounded
+    # below the land leaves nothing to tax (ревью Codex 15.10.2026).
+    taxable = max(total - land, 0.0)
     if vat_included:
         vat = taxable * rate / (100 + rate)
         gross, net = total, total - vat

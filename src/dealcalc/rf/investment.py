@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy_financial as npf
 
-from ._adjustments import money
+from ._adjustments import money, round_half_up, round_step
 from ._meta import FORMULA_TECHNICAL, method_card
 
 
@@ -526,7 +526,7 @@ def bank_liquidation_value(
             raise ValueError("coefficient_decimals must be a non-negative integer")
         scale = 10 ** coefficient_decimals
         if coefficient_rounding == "round":
-            coefficient = round(exact, coefficient_decimals)
+            coefficient = round_half_up(exact, coefficient_decimals)
         elif coefficient_rounding == "down":
             coefficient = math.floor(exact * scale + 1e-9) / scale
         else:
@@ -541,7 +541,7 @@ def bank_liquidation_value(
         liquidation = value * coefficient
         parts[name] = {
             "market_value": money(value),
-            "liquidation_value": money(liquidation if step is None else round(liquidation / step) * step),
+            "liquidation_value": money(round_step(liquidation, step)),
         }
     note = justification.strip() if isinstance(justification, str) and justification.strip() else None
     return {

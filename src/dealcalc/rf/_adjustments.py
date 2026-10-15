@@ -24,6 +24,23 @@ def money(value: float) -> float:
     return rounded + 0.0  # normalise -0.0
 
 
+def round_step(value: float, step: Optional[float]) -> float:
+    """Round to a multiple of ``step`` half up, like :func:`money` (2500 by
+    1000 -> 3000; ``round`` gives 2000) — ревью Codex 15.10.2026."""
+
+    if step is None:
+        return value
+    size = Decimal(repr(float(step)))
+    units = (Decimal(repr(float(value))) / size).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return float(units * size) + 0.0
+
+
+def round_half_up(value: float, decimals: int) -> float:
+    """Round to ``decimals`` places half up (0.625 -> 0.63)."""
+
+    return float(Decimal(repr(float(value))).quantize(Decimal(1).scaleb(-decimals), rounding=ROUND_HALF_UP)) + 0.0
+
+
 def _finite(name: str, value: Any) -> float:
     if isinstance(value, bool):
         raise ValueError(f"{name} must be a number")

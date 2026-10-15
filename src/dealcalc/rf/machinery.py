@@ -11,7 +11,7 @@ import math
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict, List, Optional
 
-from ._adjustments import apply_adjustments, money
+from ._adjustments import apply_adjustments, money, round_step
 from ._meta import (
     FORMULA_METHODICAL,
     FORMULA_TECHNICAL,
@@ -578,7 +578,7 @@ def _depreciation_pct(name: str, value: Any) -> float:
 
 
 def _rounded(value: float, step: Optional[float]) -> float:
-    return value if step is None else round(value / step) * step
+    return round_step(value, step)
 
 
 @method_card(
@@ -681,9 +681,11 @@ def machinery_cost_approach(
         "total_rounded": money(total_rounded),
         "round_to": step,
         "vat_rate_pct": vat,
-        # The rate actually in the value: the general VAT check against the
-        # context reads it (ревью Codex 15.10.2026: НДС при vat=excluded молча).
-        "vat_pct": 0 if vat is None else vat,
+        # The rate added to the value: the general VAT check against the
+        # context reads it (ревью Codex 15.10.2026: НДС при vat=excluded
+        # молча). Without it the prices are taken as given — with or without
+        # VAT is not known, so nothing is checked (not "0 %").
+        **({} if vat is None else {"vat_pct": vat}),
         "guardrails": guardrails,
         "checks": observation_checks(results),
     }

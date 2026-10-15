@@ -131,7 +131,7 @@ def test_machinery_vat_against_the_context():
     matching = rf.machinery_cost_approach(item, vat_rate_pct=20, context=dict(CONTEXT, vat="included", vat_rate_pct=20))
 
     assert any("НДС" in text for text in with_vat["checks"])
-    assert any("НДС 0%" in text for text in without["checks"])
+    assert not any("НДС" in text for text in without["checks"])  # цены как даны: с НДС или без — неизвестно
     assert not any("НДС" in text for text in matching["checks"])
 
 
@@ -139,3 +139,27 @@ def test_split_half_a_kopeck_like_money():
     result = rf.split_set_price(0.025, {"a": 1, "b": 1}, base_source="договор", context=CONTEXT)
 
     assert result["set_price"] == 0.03 and round(sum(item["price"] for item in result["items"]), 2) == 0.03
+
+
+# Пятый прогон ревью Codex 15.10.2026.
+
+
+def test_quote_after_the_valuation_date_is_a_check():
+    result = rf.mean_new_price([{"price": 100_000, "date": "2026-01-01", "source": "КП"}], context=CONTEXT)
+
+    assert any("позже даты оценки" in text for text in result["checks"])
+
+
+def test_step_rounding_half_up():
+    item = [{"name": "a", "new_price": 2500, "physical_depreciation_pct": 0}]
+
+    assert rf.machinery_cost_approach(item, round_to=1000, context=CONTEXT)["total_rounded"] == 3000
+
+
+def test_bank_coefficient_half_up():
+    # затраты 37,5 %, эластичность 1, без дисконтирования: точный коэффициент 0,625
+    result = rf.bank_liquidation_value({"a": 1_000_000}, 37.5, 1, 0, 0, coefficient_decimals=2, round_to=1000,
+                                       context=CONTEXT)
+
+    assert result["coefficient"] == 0.63
+
