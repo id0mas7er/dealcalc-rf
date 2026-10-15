@@ -8,11 +8,11 @@ def test_small_weights_do_not_round_to_zero():
         {"price_rub": 1_000_000, "weight": 0.001},
         {"price_rub": 2_000_000, "weight": 0.003},
     ])
-    assert result["weighted_mean_price"] == 1_750_000
-    assert result["indicated_value"] == 2_000_000
+    assert result["weighted_mean_price"] == result["indicated_value"] == 1_750_000
+    assert result["weighted_median_price"] == 2_000_000
 
 
-def test_vehicle_comparative_approach_filters_and_uses_weighted_median():
+def test_vehicle_comparative_approach_filters_and_uses_weighted_mean():
     result = vehicle_comparative_approach(
         {"brand": "Lada", "model": "Vesta", "year": 2021, "mileage_km": 60_000},
         [
@@ -49,7 +49,8 @@ def test_vehicle_comparative_approach_filters_and_uses_weighted_median():
 
     assert result["sample_size"] == 2
     assert result["rejected_count"] == 1
-    assert result["indicated_value"] == 1_100_000.0
+    assert result["indicated_value"] == 1_066_666.67  # (2 × 1 100 000 + 1 000 000) / 3
+    assert result["weighted_median_price"] == 1_100_000.0
     assert result["analogs_spread"] == {"low": 1_000_000.0, "high": 1_100_000.0}
 
 

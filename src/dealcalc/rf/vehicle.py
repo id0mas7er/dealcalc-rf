@@ -190,7 +190,7 @@ def _weighted_median(items: Sequence[tuple[float, float]]) -> float:
 @method_card(
     "VEHICLE_COMPARATIVE",
     "ФСО V; ФСО №10, п. 13",
-    "P_adj = P_0 с последовательными поправками; V = взвешенная медиана P_adj (statistic=weighted_mean — взвешенное среднее)",
+    "P_adj = P_0 с последовательными поправками; V = Σ w_i P_adj,i / Σ w_i (statistic=weighted_median — взвешенная медиана)",
     FORMULA_TECHNICAL,
     source_url="https://srosovet.ru/activities/npa/fso-10/",
 )
@@ -204,7 +204,7 @@ def vehicle_comparative_approach(
     match: str = "exact",
     synonyms: Optional[Mapping[str, Sequence[str]]] = None,
     synonyms_file: Optional[str] = None,
-    statistic: str = "weighted_median",
+    statistic: str = "weighted_mean",
 ) -> Dict[str, Any]:
     """Estimate a vehicle from matched, adjusted comparable listings.
 
@@ -230,12 +230,13 @@ def vehicle_comparative_approach(
     prices against the 33% homogeneity threshold. No automatic depreciation
     coefficient is imposed.
 
-    The indicated value is the weighted median of adjusted prices without
-    interpolation: the first price, in ascending order, whose cumulative
-    weight reaches half of the total. With an even split it is the lower
-    median — of two analogs with equal weights, the cheaper one.
-    ``statistic="weighted_mean"`` takes the weighted mean instead, as most
-    reports do; both are always in the result. The choice is the appraiser's.
+    The indicated value is the weighted mean of adjusted prices, as the
+    appraisers' reports compute it (решение оценщика 15.10.2026).
+    ``statistic="weighted_median"`` takes the weighted median instead,
+    without interpolation: the first price, in ascending order, whose
+    cumulative weight reaches half of the total (with an even split the lower
+    median — of two analogs with equal weights, the cheaper one). Both are
+    always in the result.
 
     Brands and models are matched through the package dictionary
     ``vehicle_synonyms.json`` and transliteration. ``synonyms``

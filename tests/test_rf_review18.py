@@ -44,7 +44,8 @@ def _vehicles(prices):
 def test_two_equal_weights_take_the_lower_median():
     result = _vehicles([1_000_000, 1_200_000])
 
-    assert result["weighted_median_price"] == result["indicated_value"] == 1_000_000.0
+    assert result["weighted_median_price"] == 1_000_000.0
+    assert result["indicated_value"] == result["weighted_mean_price"] == 1_100_000.0  # среднее по умолчанию
 
 
 def test_the_median_convention_is_documented():

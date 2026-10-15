@@ -778,10 +778,10 @@ def rf_vehicle_comparative_approach(
     match: str = "exact",
     synonyms: Optional[dict] = None,
     synonyms_file: Optional[str] = None,
-    statistic: str = "weighted_median",
+    statistic: str = "weighted_mean",
     context: Optional[dict] = None,
 ) -> dict:
-    """Сравнительный подход для автомобиля (ФСО V; ФСО №10, п. 13): итог — взвешенная медиана или среднее.
+    """Сравнительный подход для автомобиля (ФСО V; ФСО №10, п. 13): итог — взвешенное среднее (или медиана).
 
     Подбор по марке и модели по словарю пакета (ВАЗ/Lada/Лада, Солярис/Solaris,
     X-Trail/X Trail) и транслитерации; match: exact | contains (Vesta → Vesta SW Cross);
@@ -789,8 +789,8 @@ def rf_vehicle_comparative_approach(
     локальный JSON {"brands": {...}, "models": {...}}. Ограничения по году и пробегу задаёт оценщик
     (умолчаний нет). adjustments — как в rf_comparative_approach, abs — в рублях;
     weighting: manual | inverse_gross | inverse_count | count_share | count_share_2 | sum_share |
-    sum_share_100 | inverse_sum (как в rf_comparative_approach). statistic: weighted_median
-    (по умолчанию) | weighted_mean — выбирает оценщик; в результате есть обе величины."""
+    sum_share_100 | inverse_sum (как в rf_comparative_approach). statistic: weighted_mean
+    (по умолчанию, как в отчётах) | weighted_median; в результате есть обе величины."""
     return rf.vehicle_comparative_approach(
         subject,
         comparables,

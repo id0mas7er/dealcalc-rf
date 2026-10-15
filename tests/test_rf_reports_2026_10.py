@@ -15,6 +15,10 @@ def _shares(result):
 
 # --- R1: автомобиль — взвешенное среднее или медиана (отчёт 147/25-ю, Nissan Teana) ---
 
+def _nissan_default():
+    return _nissan(None)
+
+
 def _nissan(statistic):
     comparables = [
         {"brand": "Nissan", "model": "Teana", "year": 2013, "price_rub": price, "source": "Drom",
@@ -22,9 +26,8 @@ def _nissan(statistic):
          "adjustments": [{"name": "торг", "type": "pct", "value": -9.6}]}
         for price in (1_125_000, 1_250_000, 1_200_000, 1_033_000)
     ]
-    return rf.vehicle_comparative_approach(
-        {"brand": "Nissan", "model": "Teana", "year": 2013}, comparables, statistic=statistic
-    )
+    extra = {} if statistic is None else {"statistic": statistic}
+    return rf.vehicle_comparative_approach({"brand": "Nissan", "model": "Teana", "year": 2013}, comparables, **extra)
 
 
 def test_vehicle_weighted_mean_reproduces_report():
@@ -35,7 +38,15 @@ def test_vehicle_weighted_mean_reproduces_report():
     assert result["weighted_median_price"] == 1_017_000
 
 
-def test_vehicle_weighted_median_is_default():
+def test_vehicle_weighted_mean_is_the_default():
+    """Решение оценщика 15.10.2026: как в отчётах — взвешенное среднее."""
+
+    result = _nissan_default()
+
+    assert result["statistic"] == "weighted_mean" and result["indicated_value"] == 1_041_408
+
+
+def test_vehicle_weighted_median_on_request():
     result = _nissan("weighted_median")
 
     assert result["statistic"] == "weighted_median"
