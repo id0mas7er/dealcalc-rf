@@ -96,9 +96,26 @@ def test_split_and_mean_reminders():
     assert quotes["mean_price"] == 125 and quotes["spread_pct"] == 50 and quotes["guardrails"]
 
 
-def test_split_reports_the_rounding_difference():
-    result = rf.split_set_price(100, {"a": 1, "b": 1, "c": 1}, base_source="договор", context=CONTEXT)
+def test_split_keeps_the_sum_and_no_negative_prices():
+    """Копейки — по наибольшим остаткам (ревью Codex 14.10.2026: 0,02 на четыре давало −0,01)."""
 
-    prices = [item["price"] for item in result["items"]]
-    assert result["rounding_difference"] == 0.01 and prices == [33.33, 33.33, 33.34]
-    assert round(sum(prices), 2) == 100 and result["items"][-1]["rounding_adjustment"] == 0.01
+    three = rf.split_set_price(100, {"a": 1, "b": 1, "c": 1}, base_source="договор", context=CONTEXT)
+    tiny = rf.split_set_price(0.02, {"a": 1, "b": 1, "c": 1, "d": 1}, base_source="договор", context=CONTEXT)
+
+    assert [item["price"] for item in three["items"]] == [33.34, 33.33, 33.33]
+    assert [item["price"] for item in tiny["items"]] == [0.01, 0.01, 0, 0]
+    assert three["rounding_difference"] == tiny["rounding_difference"] == 0
+
+
+def test_later_price_of_a_machinery_item_is_a_check():
+    """Анализ отчётов 14.10.2026: цена позиции 2026 г. на дату оценки 2025 г. проходила без замечаний."""
+
+    result = rf.machinery_cost_approach(
+        [{"name": "аппарат", "new_price": 1_609_556, "physical_depreciation_pct": 35, "date": "2026-01-01",
+          "source": "КП", "price_type": "предложение",
+          "steps": [{"name": "индекс", "type": "coef", "value": 1.1, "date": "2026-02-01"}]}],
+        context=CONTEXT,
+    )
+
+    assert any("позже даты оценки" in item for item in result["checks"])
+    assert any("Позиция 1, шаг" in item for item in result["checks"])

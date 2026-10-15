@@ -704,17 +704,21 @@ def split_set_price(
         raise ValueError("base_prices must name at least one item")
     bases = {str(name): _positive(f"base_prices[{name}]", value) for name, value in base_prices.items()}
     base_total = sum(bases.values())
+    # Копейки распределяются по наибольшим дробным остаткам: сумма цен равна
+    # цене комплекта, ни одна цена не отрицательна (100 на три → 33,34; 33,33;
+    # 33,33 — ревью Codex 14.10.2026: остаток на последнюю давал −0,01).
+    exact = [total * base / base_total * 100 for base in bases.values()]
+    cents = [math.floor(value + 1e-9) for value in exact]
+    left = round(total * 100) - sum(cents)
+    order = sorted(range(len(exact)), key=lambda i: (-(exact[i] - cents[i]), i))
+    for i in order[:max(left, 0)]:
+        cents[i] += 1
     items = [
         {"name": name, "base_price": money(base), "share_pct": round(base / base_total * 100, 4),
-         "price": money(total * base / base_total)}
-        for name, base in bases.items()
+         "price": cents[i] / 100, "rounding_adjustment": money(cents[i] / 100 - exact[i] / 100)}
+        for i, (name, base) in enumerate(bases.items())
     ]
-    # Округлённые доли могут не дать цену комплекта (100 на три → 99,99):
-    # остаток относится на последнюю позицию, чтобы сумма совпала.
-    difference = money(total - sum(item["price"] for item in items))
-    if difference:
-        items[-1]["price"] = money(items[-1]["price"] + difference)
-        items[-1]["rounding_adjustment"] = difference
+    difference = money(sum(exact) / 100 - sum(item["price"] for item in items))
     return {
         "set_price": money(total),
         "base_source": base_source,

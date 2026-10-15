@@ -158,3 +158,30 @@ def test_currency_rate_step_reminder():
     assert any("не индекс цен" in item for item in result["guardrails"])
     plain = rf.comparative_approach(1, [{"price": 100, "area_sqm": 1}], context=CONTEXT)
     assert not any("не индекс цен" in item for item in plain["guardrails"])
+
+
+# Анализ отчётов Codex 14.10.2026: даты относительно даты оценки.
+
+
+def test_vehicle_year_after_the_valuation_date_is_a_check():
+    comparables = [{"brand": "Nissan", "model": "Teana", "year": year, "price_rub": 1_000_000, "source": "Drom",
+                    "date": "2025-02-28", "price_type": "предложение"} for year in (2027, 2024)]
+    context = {"valuation_date": "2025-02-28", "value_type": "рыночная", "vat": "included", "vat_rate_pct": 20}
+    result = rf.vehicle_comparative_approach({"brand": "Nissan", "model": "Teana", "year": 2027}, comparables,
+                                             context=context)
+
+    assert any("Год выпуска объекта 2027" in item for item in result["checks"])
+    assert any("Аналоги [1]" in item for item in result["checks"])
+    assert result["status"] == "нужна проверка оценщика"
+
+
+def test_source_dated_by_a_later_year_is_a_check():
+    """Справочник «2023» на дату оценки 31.12.2022 (год издания без дня и месяца)."""
+
+    comparables = [{"price": 100, "area_sqm": 1, "adjustments": [
+        {"name": "торг", "type": "pct", "value": -9.6, "date": "2023", "source": "Лейфер МиО, 2023"}]}]
+    later = rf.comparative_approach(1, comparables, context=dict(CONTEXT, valuation_date="2022-12-31"))
+    same = rf.comparative_approach(1, comparables, context=dict(CONTEXT, valuation_date="2023-06-30"))
+
+    assert any("позже даты оценки" in item for item in later["checks"])
+    assert not any("позже даты оценки" in item for item in same["checks"])

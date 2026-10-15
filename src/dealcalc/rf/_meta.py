@@ -158,7 +158,15 @@ def _parse_date(value: Any) -> Optional[date]:
 
 
 def _observations(result: Mapping[str, Any]) -> List[Mapping[str, Any]]:
-    items = result.get("comparables") or result.get("analogs") or []
+    """Market observations of a result: analogs, positions of a machinery
+    cost approach (``items``), costs of intangible assets (``costs``) —
+    анализ отчётов 14.10.2026: цена позиции позже даты оценки не проверялась."""
+
+    items: List[Any] = []
+    for key in ("comparables", "analogs", "items", "costs"):
+        found = result.get(key)
+        if isinstance(found, list):
+            items += found
     return [item for item in items if isinstance(item, Mapping)]
 
 
@@ -339,6 +347,31 @@ def _land_step_guardrails(result: Mapping[str, Any]) -> List[str]:
     ]
 
 
+def _vehicle_year_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[str]:
+    """A year of manufacture after the year of the valuation date — the
+    vehicle did not exist then (анализ отчётов 14.10.2026; отчёт 58/25-ю:
+    «январь 2027» на дату 2025 г.)."""
+
+    valuation = _valuation_date(context)
+    if valuation is None or result.get("asset_type") != "vehicle":
+        return []
+    checks = []
+    year = result.get("subject_year")
+    if isinstance(year, (int, float)) and year > valuation.year:
+        checks.append(
+            f"Год выпуска объекта {year:g} позже года даты оценки {valuation.year}: на дату оценки такого "
+            "автомобиля не было — проверьте год или дату оценки."
+        )
+    later = [item.get("index") for item in _observations(result)
+             if isinstance(item.get("year"), (int, float)) and item["year"] > valuation.year]
+    if later:
+        checks.append(
+            f"Аналоги {later}: год выпуска позже года даты оценки {valuation.year} — на дату оценки их не "
+            "было на рынке; исключите их или проверьте год."
+        )
+    return checks
+
+
 def _weighting_guardrails(result: Mapping[str, Any]) -> List[str]:
     if result.get("weighting") in (None, "manual"):
         return []
@@ -382,11 +415,20 @@ def _confidence_text(label: str, value: Any, bounds: Mapping[str, Any], justifie
 
 
 def _later_source_text(label: str, raw: Any, valuation: Optional[date]) -> Optional[str]:
-    """A source dated after the valuation date (ФСО III, п. 12)."""
+    """A source dated after the valuation date (ФСО III, п. 12). A date of
+    only a year («2023» — the edition of a reference book) is later when the
+    year is after the year of the valuation date."""
 
-    found = None if valuation is None or raw in (None, "") else _parse_date(raw)
-    if found is None or found <= valuation:
+    if valuation is None or raw in (None, ""):
         return None
+    text = str(raw).strip()
+    if re.fullmatch(r"\d{4}", text):
+        if int(text) <= valuation.year:
+            return None
+    else:
+        found = _parse_date(raw)
+        if found is None or found <= valuation:
+            return None
     return (
         f"{label}: источник датирован {raw}, позже даты оценки {valuation.isoformat()}; он должен отражать "
         "состояние рынка на дату оценки (ФСО III, п. 12)"
@@ -420,6 +462,7 @@ def _step_range_review(result: Mapping[str, Any], valuation: Optional[date] = No
     checks: List[str] = []
     guardrails: List[str] = []
     owners = [(f"Аналог {item.get('index')}, шаг", item, "adjustments") for item in _observations(result)]
+    owners += [(f"Позиция {item.get('index')}, шаг", item, "steps") for item in _observations(result)]
     owners += [("Шаг", result, "adjustments"), ("Статья расходов", result, "operating_expenses")]
     for owner, item, key in owners:
         steps = item.get(key)
@@ -644,6 +687,7 @@ def method_card(
             result = dict(func(*args, **kwargs))
             checks = list(result.pop("checks", [])) + _vat_checks(assignment, result)
             checks += _later_price_checks(assignment, result) + _kind_checks(assignment, result)
+            checks += _vehicle_year_checks(assignment, result)
             checks += _analog_vat_checks(assignment, result)
             guardrails = list(result.pop("guardrails", []))
             step_checks, step_guardrails = _step_range_review(result, _valuation_date(assignment))

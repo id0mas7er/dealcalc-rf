@@ -36,6 +36,8 @@ _FIRST_CAR_YEAR = 1886
 
 
 def _year_error(year: Optional[float]) -> Optional[str]:
+    # A gross data error only; the year against the valuation date is a check
+    # of the context (_meta._vehicle_year_checks).
     if year is None or _FIRST_CAR_YEAR <= year <= date.today().year + 1:
         return None
     return f"год выпуска {year:g}: недостоверный"
@@ -429,6 +431,7 @@ def vehicle_comparative_approach(
         "asset_type": "vehicle",
         "currency": currency_code,
         "subject_price_rub": None if subject_price is None else money(subject_price),
+        "subject_year": subject_year,
         "sample_size": len(matched),
         "rejected_count": len(rejected),
         "rejected": rejected,
