@@ -749,14 +749,15 @@ def mean_new_price(quotes: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
 
     if not quotes:
         raise ValueError("quotes must contain at least one price")
-    rows = []
+    rows, prices = [], []
     for index, quote in enumerate(quotes):
         prefix = f"quotes[{index}]"
         if not isinstance(quote, Mapping):
             raise ValueError(f"{prefix} must be an object")
-        rows.append({"index": index + 1, "price": money(_positive(f"{prefix}.price", quote.get("price"))),
-                     **observation_fields(quote, prefix)})
-    prices = [row["price"] for row in rows]
+        # The mean and the spread from the prices as given, rounded only in
+        # the result (ревью Codex 15.10.2026: 100,005 и 100,015 → 100,02).
+        prices.append(_positive(f"{prefix}.price", quote.get("price")))
+        rows.append({"index": index + 1, "price": money(prices[-1]), **observation_fields(quote, prefix)})
     mean = sum(prices) / len(prices)
     spread = (max(prices) - min(prices)) / min(prices) * 100
     return {

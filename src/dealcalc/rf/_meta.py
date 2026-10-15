@@ -145,6 +145,19 @@ def _vat_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[s
     return checks
 
 
+def _vat_rate_checks(context: Mapping[str, Any], result: Mapping[str, Any]) -> List[str]:
+    """A rate of a VAT breakdown (``vat_rate_pct`` without ``vat_pct``: both
+    sums are shown, so only the rate is compared) against the context rate
+    (ревью Codex 15.10.2026)."""
+
+    rate, expected = result.get("vat_rate_pct"), context.get("vat_rate_pct")
+    if "vat_pct" in result or not isinstance(rate, (int, float)) or not isinstance(expected, (int, float)):
+        return []
+    if rate == expected:
+        return []
+    return [f"Ставка НДС в расчёте {rate:g}% не совпадает со ставкой в context {expected:g}%."]
+
+
 def _parse_date(value: Any) -> Optional[date]:
     text = str(value).strip()
     try:
@@ -325,7 +338,7 @@ def _fx_guardrails(result: Mapping[str, Any]) -> List[str]:
     """A currency rate used as a price index (разбор отчётов 58/25-ю, ГНТТП, БМК)."""
 
     names = [str(step.get("name", "")) for step in result.get("steps") or [] if isinstance(step, Mapping)]
-    containers = ("comparables", "items", "costs")
+    containers = ("comparables", "items", "costs", "parts")
     lists = [result.get(key) for key in containers if isinstance(result.get(key), list)]
     for item in [entry for entries in lists for entry in entries]:
         if isinstance(item, Mapping):
@@ -706,6 +719,7 @@ def method_card(
             basis = validate_flow_rate_basis(flow_rate_basis) if income_model else None
             result = dict(func(*args, **kwargs))
             checks = list(result.pop("checks", [])) + _vat_checks(assignment, result)
+            checks += _vat_rate_checks(assignment, result)
             checks += _later_price_checks(assignment, result) + _kind_checks(assignment, result)
             checks += _vehicle_year_checks(assignment, result)
             checks += _analog_vat_checks(assignment, result)

@@ -147,6 +147,7 @@ def intangible_cost_method(
     "R_t = Выручка_t × ставка роялти × (1 − налог); V = Σ R_t / (1 + r)^t_i + паушальный платёж",
     FORMULA_TECHNICAL,
     source_url="https://fsosro.ru/01.01.031/664.aspx",
+    income_model=True,
 )
 def relief_from_royalty(
     revenues: Sequence[float],
@@ -166,6 +167,9 @@ def relief_from_royalty(
     payment at the valuation date (licence with a lump sum plus royalty).
     """
 
+    for name, values in (("revenues", revenues), ("periods", periods)):
+        if isinstance(values, (str, bytes, Mapping)):
+            raise ValueError(f"{name} must be a list of numbers")
     flows = [_non_negative(f"revenues[{index}]", value) for index, value in enumerate(revenues or [])]
     if not flows:
         raise ValueError("revenues must contain at least one period")

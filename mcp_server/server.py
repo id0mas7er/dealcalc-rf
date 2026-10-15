@@ -479,12 +479,13 @@ def rf_relief_from_royalty(
     lump_sum: float = 0,
     royalty_source: Optional[str] = None,
     context: Optional[dict] = None,
+    flow_rate_basis: Optional[dict] = None,
 ) -> dict:
     """Метод освобождения от роялти (ФСО XI, пп. 14–15): роялти = выручка × ставка (× (1 − налог)),
     V = Σ роялти / (1 + r)^t + паушальный платёж. periods — моменты дисконтирования в годах
     (0,38; 1,38…), по умолчанию 1, 2, …"""
     return rf.relief_from_royalty(revenues, royalty_rate_pct, discount_rate_pct, periods, tax_rate_pct, lump_sum,
-                                  royalty_source, context=context)
+                                  royalty_source, context=context, flow_rate_basis=flow_rate_basis)
 
 
 @tool

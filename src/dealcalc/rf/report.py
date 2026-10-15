@@ -88,6 +88,13 @@ _VALUE_KEYS = {
     "GROSS_RENT_MULTIPLIER": ("indicated_value",),
     "PROPERTY_COST_APPROACH": ("indicated_value",),
     "MACHINERY_COST": ("residual_value",),
+    # Методы 0.17–0.23 (ревью Codex 15.10.2026: отчёт с их итогом не выпускался).
+    "COMPARABLE_ITEM_PRICE": ("indicated_value",),
+    "MACHINERY_COST_APPROACH": ("total_rounded", "total_value"),
+    "INTANGIBLE_COST_METHOD": ("total_value",),
+    "RELIEF_FROM_ROYALTY": ("value",),
+    "BANK_LIQUIDATION_VALUE": ("liquidation_value",),
+    "BANKRUPTCY_SECURED_CLAIM": ("value",),
     "QUALITATIVE_ADJUSTMENTS": ("weighted_value", "range_value"),
     "BUSINESS_EQUITY_DCF": ("equity_value_100pct",),
     "BUSINESS_MULTIPLE": ("value_100pct",),

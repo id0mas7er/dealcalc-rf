@@ -194,3 +194,47 @@ def test_vehicle_year_given_as_a_string_is_checked():
     result = rf.vehicle_comparative_approach({"brand": "Kia", "model": "Rio"}, comparables, context=context)
 
     assert any("Аналоги [1]" in item and "год выпуска" in item for item in result["checks"])
+
+
+# Седьмой прогон ревью Codex 15.10.2026.
+
+
+def test_vat_breakdown_rate_against_the_context():
+    context = dict(CONTEXT, vat="included", vat_rate_pct=22)
+
+    assert any("не совпадает" in text for text in rf.vat_breakdown(1_220_000, 20, context=context)["checks"])
+    assert not rf.vat_breakdown(1_220_000, 22, context=context)["checks"]
+
+
+def test_mean_new_price_from_prices_as_given():
+    assert rf.mean_new_price([{"price": 100.005}, {"price": 100.015}], context=CONTEXT)["mean_price"] == 100.01
+    assert rf.mean_new_price([{"price": 0.004}], context=CONTEXT)["spread_pct"] == 0
+
+
+def test_relief_from_royalty_is_an_income_model():
+    basis = {"flow": {"price_level": "nominal", "tax": "post_tax"}, "rate": {"price_level": "nominal", "tax": "pre_tax"}}
+    result = rf.relief_from_royalty([1000], 5, 20, context=CONTEXT, flow_rate_basis=basis)
+
+    assert result["flow_rate_basis"] and result["checks"]
+    with pytest.raises(ValueError, match="list of numbers"):
+        rf.relief_from_royalty("1000", 5, 20, context=CONTEXT)
+
+
+def test_currency_reminder_in_a_composite_replacement_cost():
+    indices = [{"name": "USD currency ratio", "value": 1.1}]
+    result = rf.composite_replacement_cost([{"name": "корпус", "base_cost": 1000, "indices": indices}], context=CONTEXT)
+
+    assert any("не индекс цен" in text for text in result["guardrails"])
+
+
+@pytest.mark.parametrize("name, result_of", [
+    ("item", lambda: rf.item_comparative_approach([{"price": 100}], weighting="count_share", context=CONTEXT)),
+    ("royalty", lambda: rf.relief_from_royalty([1000], 10, 20, context=CONTEXT)),
+    ("bank", lambda: rf.bank_liquidation_value({"a": 1000}, 10, 1, 0, 0, context=CONTEXT)),
+])
+def test_report_accepts_the_value_of_new_methods(name, result_of):
+    from dealcalc.rf.report import _VALUE_KEYS
+
+    result = result_of()
+    keys = _VALUE_KEYS[result["method_card"]["id"]]
+    assert any(isinstance(result.get(key), (int, float)) for key in keys)

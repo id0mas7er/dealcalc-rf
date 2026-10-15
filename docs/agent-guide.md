@@ -69,7 +69,7 @@ codex mcp add dealcalc-rf -- PYTHON SERVER
 
 ### Проверка подключения
 
-1. Список инструментов сервера `dealcalc-rf` — 44 инструмента с префиксом
+1. Список инструментов сервера `dealcalc-rf` — 65 инструментов с префиксом
    `rf_`.
 2. Пробный вызов `rf_income_capitalization` с `noi_annual=1000000` и
    `cap_rate_pct=10` возвращает `indicated_value = 10000000` и
